@@ -226,7 +226,12 @@ function KeySection({
   onDelete: () => Promise<boolean>;
   onTest: () => Promise<boolean>;
 }) {
-  const [key, setKey] = useState("");
+  const [key, setKeyRaw] = useState("");
+  const [pub, setPub] = useState("");
+  const [sec, setSec] = useState("");
+  const isPair = gateway === "wappi";
+  const finalKey = isPair ? (pub.trim() && sec.trim() ? `${pub.trim()}:${sec.trim()}` : "") : key.trim();
+  const setKey = (v: string) => { setKeyRaw(v); setPub(""); setSec(""); };
   const label = loading
     ? "…"
     : info?.source === "admin"
@@ -246,22 +251,29 @@ function KeySection({
         </span>
       </div>
       <div className="text-xs text-muted-foreground">
-        {gateway === "wappi" && "Cole no formato CHAVE_PUBLICA:CHAVE_SECRETA. "}
+        {isPair && "Cole a chave pública e a chave secreta nos campos separados. "}
         A chave salva aqui tem prioridade. Sem ela, vale o secret {SECRET[gateway]} do Lovable.
       </div>
+      {isPair ? (
+        <>
+          <Input autoComplete="off" aria-label="Chave pública Wappi" placeholder={info?.key ? `Chave em uso (${info.key}) — chave pública` : "Chave pública"} value={pub} onChange={(e) => setPub(e.target.value)} />
+          <Input type="password" autoComplete="off" aria-label="Chave secreta Wappi" placeholder="Chave secreta" value={sec} onChange={(e) => setSec(e.target.value)} />
+        </>
+      ) : (
       <Input
         type="password"
         autoComplete="off"
         aria-label={`Chave da API ${LABEL[gateway]}`}
         placeholder={info?.key ? `Chave em uso (${info.key})` : `Chave da API ${LABEL[gateway]}`}
         value={key}
-        onChange={(e) => setKey(e.target.value)}
+        onChange={(e) => setKeyRaw(e.target.value)}
       />
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          disabled={key.trim().length < 10 || !!busy}
-          onClick={() => onSave(key.trim()).then((ok) => ok && setKey(""))}
+          disabled={finalKey.length < 10 || !!busy}
+          onClick={() => onSave(finalKey).then((ok) => ok && setKey(""))}
         >
           {busy === `save-${gateway}` ? "Salvando…" : `Salvar chave ${LABEL[gateway]}`}
         </Button>
