@@ -12,6 +12,7 @@ import { getSagacePayKey, sagaceCashin, sagaceStatus } from "@/lib/sagacepay.ser
 import { getPaySharkKey, paysharkCashin, paysharkStatus } from "@/lib/payshark.server";
 import { getKokuKey, kokuCashin, kokuStatus } from "@/lib/koku.server";
 import { getPixBlackKey, pixBlackCashin, pixBlackStatus } from "@/lib/pixblack.server";
+import { getWappiKey, wappiCashin, wappiStatus } from "@/lib/wappi.server";
 export const PIX_GATEWAYS = [
   "pixgate",
   "umbrella",
@@ -19,6 +20,7 @@ export const PIX_GATEWAYS = [
   "payshark",
   "koku",
   "pixblack",
+  "wappi",
 ] as const;
 export type PixGateway = (typeof PIX_GATEWAYS)[number];
 export const PIX_GATEWAY_LABEL: Record<PixGateway, string> = {
@@ -28,6 +30,7 @@ export const PIX_GATEWAY_LABEL: Record<PixGateway, string> = {
   payshark: "PayShark",
   koku: "Koku",
   pixblack: "Pix Black",
+  wappi: "Wappi",
 };
 
 /** Pedidos Pix da Umbrella são guardados com este prefixo (os da PixGate ficam sem prefixo). */
@@ -45,6 +48,9 @@ export const isKokuOrderId = (id: string) => id.startsWith(KOKU_ORDER_PREFIX);
 /** Pedidos Pix da Pix Black são guardados com este prefixo. */
 export const PIXBLACK_ORDER_PREFIX = "pb_";
 export const isPixBlackOrderId = (id: string) => id.startsWith(PIXBLACK_ORDER_PREFIX);
+/** Pedidos Pix da Wappi são guardados com este prefixo. */
+export const WAPPI_ORDER_PREFIX = "wp_";
+export const isWappiOrderId = (id: string) => id.startsWith(WAPPI_ORDER_PREFIX);
 
 /** O Pix da SagacePay expira em 30 minutos (mesmo prazo mostrado no checkout). */
 const PIX_EXPIRES_IN_SECONDS = 30 * 60;
@@ -73,13 +79,14 @@ async function savedChoice(): Promise<PixGateway | null> {
 
 /** Quais gateways têm chave cadastrada (painel ou secret do Lovable). */
 async function configured(): Promise<Record<PixGateway, boolean>> {
-  const [umbrella, pixgate, sagacepay, payshark, koku, pixblack] = await Promise.all([
+  const [umbrella, pixgate, sagacepay, payshark, koku, pixblack, wappi] = await Promise.all([
     getUmbrellaKey().catch(() => null),
     getPixgateKey().catch(() => null),
     getSagacePayKey().catch(() => null),
     getPaySharkKey().catch(() => null),
     getKokuKey().catch(() => null),
     getPixBlackKey().catch(() => null),
+    getWappiKey().catch(() => null),
   ]);
   return {
     umbrella: !!umbrella,
@@ -88,6 +95,7 @@ async function configured(): Promise<Record<PixGateway, boolean>> {
     payshark: !!payshark,
     koku: !!koku,
     pixblack: !!pixblack,
+    wappi: !!wappi,
   };
 }
 
@@ -187,6 +195,17 @@ export async function createPix(o: {
     });
     return { ...tx, id: `${PAYSHARK_ORDER_PREFIX}${tx.id}` };
   }
+  if (active === "wappi") {
+    const tx = await wappiCashin({
+      amountCents: o.amount,
+      customer: o.customer,
+      description: o.description,
+      postbackUrl: `${webhook}?gw=wp`,
+      externalRef: crypto.randomUUID(),
+      ip: o.ip,
+    });
+    return { ...tx, id: `${WAPPI_ORDER_PREFIX}${tx.id}` };
+  }
   return pixgateCashin({ ...o, postback: webhook });
 }
 
@@ -200,6 +219,7 @@ export async function fetchPixStatus(id: string): Promise<{ status: string; amou
   if (isPaySharkOrderId(id)) return paysharkStatus(id.slice(PAYSHARK_ORDER_PREFIX.length));
   if (isKokuOrderId(id)) return kokuStatus(id.slice(KOKU_ORDER_PREFIX.length));
   if (isPixBlackOrderId(id)) return pixBlackStatus(id.slice(PIXBLACK_ORDER_PREFIX.length));
+  if (isWappiOrderId(id)) return wappiStatus(id.slice(WAPPI_ORDER_PREFIX.length));
   return pixgateStatus(id);
 }
 

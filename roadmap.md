@@ -10,3 +10,5 @@
 - [ ] 8. Upsell no mesmo cartão: token cvt_live_ + CPF no sessionStorage; payWithSavedCard no navegador, servidor repassa com parentId; sem token/chave cai no Pix
 - [ ] 9. Testes unitários: mapeamento de status, prefixo le_, regra de fallback, desconto do Pix
 - [ ] 10. Verificar build OK + testes passando
+
+- [x] Adicionar gateway Pix Wappi (docs app.wappibrasil.com.br/docs)

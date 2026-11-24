@@ -71,10 +71,12 @@ export const Route = createFileRoute("/api/public/pix-webhook")({
         const isUmbrella = gw === "um";
         const isSagace = gw === "sg";
         const isPayShark = gw === "ps";
+        const isWappi = gw === "wp";
         const rawId =
           (isUmbrella ? (body?.objectId ?? body?.data?.id ?? body?.id) : undefined) ??
           (isSagace ? (body?.data?.id ?? body?.id ?? body?.sale?.id) : undefined) ??
           (isPayShark ? (body?.id ?? body?.data?.id) : undefined) ??
+          (isWappi ? (body?.Id ?? body?.id ?? body?.data?.id) : undefined) ??
           body?.transaction_id ??
           body?.id ??
           body?.transaction?.id ??
@@ -89,7 +91,9 @@ export const Route = createFileRoute("/api/public/pix-webhook")({
               ? "sg_"
               : isPayShark
                 ? "ps_"
-                : "";
+                : isWappi
+                  ? "wp_"
+                  : "";
         const id = rawId == null ? "" : `${prefix}${String(rawId)}`;
         console.log("pix-webhook", body?.event, id);
         if (!/^[\w-]{1,64}$/.test(id)) return Response.json({ ok: true });

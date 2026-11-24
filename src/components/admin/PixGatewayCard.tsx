@@ -6,6 +6,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   deletePixBlackKeyFn,
+  deleteWappiKeyFn,
+  saveWappiKeyFn,
+  testWappiFn,
   deleteKokuKeyFn,
   deletePaySharkKeyFn,
   deletePixgateKeyFn,
@@ -27,8 +30,8 @@ import {
   testUmbrellaFn,
 } from "@/lib/pix-gateway.functions";
 
-type Gateway = "pixgate" | "umbrella" | "sagacepay" | "payshark" | "koku" | "pixblack";
-const GATEWAYS = ["pixgate", "umbrella", "sagacepay", "payshark", "koku", "pixblack"] as const;
+type Gateway = "pixgate" | "umbrella" | "sagacepay" | "payshark" | "koku" | "pixblack" | "wappi";
+const GATEWAYS = ["pixgate", "umbrella", "sagacepay", "payshark", "koku", "pixblack", "wappi"] as const;
 type KeyInfo = { key: string | null; source: "admin" | "secret" | null };
 type Status = {
   selected: Gateway;
@@ -44,6 +47,7 @@ const LABEL: Record<Gateway, string> = {
   payshark: "PayShark",
   koku: "Koku",
   pixblack: "Pix Black",
+  wappi: "Wappi",
 };
 const SECRET: Record<Gateway, string> = {
   pixgate: "PIXGATE_API_KEY",
@@ -52,6 +56,7 @@ const SECRET: Record<Gateway, string> = {
   payshark: "PAYSHARK_API_KEY",
   koku: "KOKU_API_KEY",
   pixblack: "PIXBLACK_API_KEY",
+  wappi: "WAPPI_API_KEY",
 };
 
 /** Escolha do gateway do Pix (PixGate, Umbrella, SagacePay ou PayShark) + chave de cada um. */
@@ -76,6 +81,9 @@ export function PixGatewayCard({ password }: { password: string }) {
   const testPayShark = useServerFn(testPaySharkFn);
   const testKoku = useServerFn(testKokuFn);
   const testPixBlack = useServerFn(testPixBlackFn);
+  const saveWappi = useServerFn(saveWappiKeyFn);
+  const deleteWappi = useServerFn(deleteWappiKeyFn);
+  const testWappi = useServerFn(testWappiFn);
   const keyFns = {
     pixgate: { save: savePixgateFn, remove: deletePixgateFn, test: testPixgate },
     umbrella: { save: saveUmbrellaFn, remove: deleteUmbrellaFn, test: testUmbrella },
@@ -83,6 +91,7 @@ export function PixGatewayCard({ password }: { password: string }) {
     payshark: { save: savePaySharkFn, remove: deletePaySharkFn, test: testPayShark },
     koku: { save: saveKokuFn, remove: deleteKokuFn, test: testKoku },
     pixblack: { save: savePixBlackFn, remove: deletePixBlackFn, test: testPixBlack },
+    wappi: { save: saveWappi, remove: deleteWappi, test: testWappi },
   };
 
   const [status, setStatus] = useState<Status | null>(null);
@@ -237,6 +246,7 @@ function KeySection({
         </span>
       </div>
       <div className="text-xs text-muted-foreground">
+        {gateway === "wappi" && "Cole no formato CHAVE_PUBLICA:CHAVE_SECRETA. "}
         A chave salva aqui tem prioridade. Sem ela, vale o secret {SECRET[gateway]} do Lovable.
       </div>
       <Input

@@ -26,6 +26,7 @@ import {
   savePixBlackKey,
   testPixBlackKey,
 } from "./pixblack.server";
+import { deleteWappiKey, getWappiKeySource, saveWappiKey, testWappiKey } from "./wappi.server";
 import {
   deletePaySharkKey,
   getPaySharkKeySource,
@@ -49,7 +50,7 @@ export const getPixGatewayStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => pw.parse(d))
   .handler(async ({ data }) => {
     assertAdmin(data.password);
-    const [state, pixgate, umbrella, sagacepay, payshark, koku, pixblack] = await Promise.all([
+    const [state, pixgate, umbrella, sagacepay, payshark, koku, pixblack, wappi] = await Promise.all([
       getPixGatewayState(),
       getPixgateKeySource(),
       getUmbrellaKeySource(),
@@ -57,6 +58,7 @@ export const getPixGatewayStatus = createServerFn({ method: "POST" })
       getPaySharkKeySource(),
       getKokuKeySource(),
       getPixBlackKeySource(),
+      getWappiKeySource(),
     ]);
     return {
       ...state,
@@ -67,6 +69,7 @@ export const getPixGatewayStatus = createServerFn({ method: "POST" })
         payshark: { key: payshark.key ? mask(payshark.key) : null, source: payshark.source },
         koku: { key: koku.key ? mask(koku.key) : null, source: koku.source },
         pixblack: { key: pixblack.key ? mask(pixblack.key) : null, source: pixblack.source },
+        wappi: { key: wappi.key ? mask(wappi.key) : null, source: wappi.source },
       },
     };
   });
@@ -221,4 +224,27 @@ export const testPixBlackFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     assertAdmin(data.password);
     return testPixBlackKey();
+  });
+
+export const saveWappiKeyFn = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => pw.extend({ key: z.string().trim().min(10).max(500) }).parse(d))
+  .handler(async ({ data }) => {
+    assertAdmin(data.password);
+    await saveWappiKey(data.key);
+    return { ok: true };
+  });
+
+export const deleteWappiKeyFn = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => pw.parse(d))
+  .handler(async ({ data }) => {
+    assertAdmin(data.password);
+    await deleteWappiKey();
+    return { ok: true };
+  });
+
+export const testWappiFn = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => pw.parse(d))
+  .handler(async ({ data }) => {
+    assertAdmin(data.password);
+    return testWappiKey();
   });
