@@ -366,9 +366,9 @@ function AdminPage() {
                 <div className="flex items-center gap-3">
                   <Truck className="w-5 h-5 text-muted-foreground" />
                   <div>
-                    <div className="font-medium">Envio de pedidos à Rotasync (rastreio)</div>
+                    <div className="font-medium">Envio de pedidos à RastroCode (rastreio)</div>
                     <div className="text-xs text-muted-foreground">
-                      Desligado, nenhum pedido pago é enviado para a Rotasync e nenhum código de
+                      Desligado, nenhum pedido pago é enviado para a RastroCode e nenhum código de
                       rastreio é gerado. A UTMify e o Facebook continuam recebendo as vendas pagas.
                     </div>
                   </div>
