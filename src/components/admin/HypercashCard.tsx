@@ -10,21 +10,16 @@ import {
   saveHypercashKeysFn,
   testHypercashFn,
 } from "@/lib/hypercash.functions";
-import { getSiteSettings, setCardEnabled } from "@/lib/site-settings.functions";
 
-/** Cartão de crédito (HyperCash): chaves salvas no banco + liga/desliga no checkout. */
+/** Credenciais HyperCash mantidas para consultar/finalizar pedidos antigos desse gateway. */
 export function HypercashCard({ password }: { password: string }) {
   const statusFn = useServerFn(getHypercashStatus);
   const saveFn = useServerFn(saveHypercashKeysFn);
   const deleteFn = useServerFn(deleteHypercashKeysFn);
   const testFn = useServerFn(testHypercashFn);
-  const settingsFn = useServerFn(getSiteSettings);
-  const toggleFn = useServerFn(setCardEnabled);
-
   const [masked, setMasked] = useState<{ secret: string | null; public: string | null } | null>(
     null,
   );
-  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [secret, setSecret] = useState("");
   const [pub, setPub] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -34,9 +29,6 @@ export function HypercashCard({ password }: { password: string }) {
     statusFn({ data: { password } })
       .then(setMasked)
       .catch(() => setMasked({ secret: null, public: null }));
-    settingsFn()
-      .then((s) => setEnabled(s.cardEnabled))
-      .catch(() => undefined);
   };
 
   useEffect(() => {
@@ -74,7 +66,7 @@ export function HypercashCard({ password }: { password: string }) {
   const remove = () =>
     run("delete", async () => {
       await deleteFn({ data: { password } });
-      return "Chaves apagadas. O cartão some do checkout.";
+      return "Chaves HyperCash apagadas. Pedidos antigos ou upsells que dependam desse gateway podem deixar de funcionar.";
     });
 
   const test = () =>
@@ -85,41 +77,18 @@ export function HypercashCard({ password }: { password: string }) {
         : `Falhou${r.status ? ` (HTTP ${r.status})` : ""}: ${r.error ?? "sem detalhes"}`;
     });
 
-  const toggle = () =>
-    run("toggle", async () => {
-      const r = await toggleFn({ data: { password, enabled: !enabled } });
-      return r.enabled ? "Cartão ativado no checkout." : "Cartão desativado: checkout só com Pix.";
-    });
-
-  const hasKeys = !!masked?.secret && !!masked?.public;
-  const live = enabled && hasKeys;
-
   return (
     <Card className="mt-3 p-5 flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <CreditCard className="w-5 h-5 text-muted-foreground" aria-hidden />
           <div>
-            <div className="font-medium">Pagamento com cartão (HyperCash)</div>
+            <div className="font-medium">HyperCash — credenciais para pedidos antigos</div>
             <div className="text-xs text-muted-foreground">
-              Ao ativar: cartão em até 12x pelo preço cheio e Pix passa a ter 10% de desconto.
-              Quando desativado, os clientes veem só o Pix — mas você, logado neste admin, ainda vê
-              o cartão para testar (abra o checkout nesta mesma aba).
+              Novas cobranças de cartão no checkout usam a Legacy Ecom. Estas credenciais ficam
+              disponíveis para acompanhar pedidos ou upsells criados anteriormente pela HyperCash.
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {enabled === null ? "…" : live ? "Ativo" : !enabled ? "Desativado" : "Sem chaves"}
-          </span>
-          <Button
-            size="sm"
-            variant={enabled ? "destructive" : "default"}
-            disabled={!!busy || enabled === null}
-            onClick={toggle}
-          >
-            {busy === "toggle" ? "Salvando…" : enabled ? "Desativar" : "Ativar"}
-          </Button>
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">

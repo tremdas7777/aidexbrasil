@@ -53,6 +53,12 @@ export const setCardEnabled = createServerFn({ method: "POST" })
     if (data.password !== process.env.ADMIN_PASSWORD) {
       throw new Error("Unauthorized");
     }
+    if (data.enabled) {
+      const { getLegacyPublicKey } = await import("@/lib/legacy.server");
+      if (!(await getLegacyPublicKey())) {
+        throw new Error("Configure primeiro o par de chaves da Legacy Ecom.");
+      }
+    }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("site_settings")

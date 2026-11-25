@@ -6,6 +6,7 @@ import { getAdminFunnel, verifyAdminPassword } from "@/lib/admin.functions";
 import { getSiteSettings, setStoreClosed, setWhatsappEnabled } from "@/lib/site-settings.functions";
 import { UtmifyCard } from "@/components/admin/UtmifyCard";
 import { HypercashCard } from "@/components/admin/HypercashCard";
+import { LegacyCard } from "@/components/admin/LegacyCard";
 import { PixGatewayCard } from "@/components/admin/PixGatewayCard";
 import { GatewayProductCard } from "@/components/admin/GatewayProductCard";
 import { MetaPixelCard } from "@/components/admin/MetaPixelCard";
@@ -32,7 +33,10 @@ export const Route = createFileRoute("/admin")({
       { title: "Admin · AiDEX" },
       { name: "description", content: "Painel restrito de pedidos e configurações da loja AiDEX." },
       { property: "og:title", content: "Admin · AiDEX" },
-      { property: "og:description", content: "Painel restrito de pedidos e configurações da loja AiDEX." },
+      {
+        property: "og:description",
+        content: "Painel restrito de pedidos e configurações da loja AiDEX.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex,nofollow" },
@@ -341,6 +345,7 @@ function AdminPage() {
               </Card>
               <PixGatewayCard password={password} />
               <GatewayProductCard password={password} />
+              <LegacyCard password={password} />
               <HypercashCard password={password} />
               <UtmifyCard password={password} />
               <MetaPixelCard password={password} />
