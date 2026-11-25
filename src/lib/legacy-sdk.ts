@@ -4,9 +4,9 @@
  * O script é carregado de {apiBaseUrl}/checkout/sdk/legacy-pay.js e expõe window.LegacyPay.
  */
 export type LegacyPreparedCard = {
-  payinCard: string;
-  card?: { last4?: string; brand?: string; token?: string };
-  antifraud?: { sessionId?: string };
+  payinCard: Record<string, unknown>;
+  card?: { last4?: string; brand?: string; token?: string } | null;
+  antifraud?: { sessionId?: string | null } | null;
 };
 
 export type LegacyPayClient = {
@@ -30,7 +30,7 @@ export type LegacyPayClient = {
     referenceId: string;
     installments: number;
     customer: { name: string; email: string; document: string; phone: string };
-  }): Promise<{ payinCard: string }>;
+  }): Promise<LegacyPreparedCard>;
 };
 
 type LegacyPayGlobal = {
@@ -64,8 +64,7 @@ export function loadLegacyPay(publicKey: string, apiBaseUrl: string): Promise<Le
 
 /** Mensagens amigáveis para os erros do 3DS do SDK. */
 export function threeDSErrorMessage(e: unknown): string {
-  const code =
-    e instanceof Error ? e.message : String((e as { code?: string } | null)?.code ?? e ?? "");
+  const code = String((e as { code?: string } | null)?.code ?? (e instanceof Error ? e.message : ""));
   if (code.includes("THREEDS_EXPIRED"))
     return "A autenticação do banco expirou. Tente novamente.";
   if (code.includes("THREEDS_FAILED"))

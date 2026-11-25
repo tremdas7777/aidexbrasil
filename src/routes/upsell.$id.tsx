@@ -16,10 +16,11 @@ import {
 } from "@/lib/upsell";
 import { brl, PRODUCT_IMG } from "@/components/checkout/parts";
 import { Shell } from "@/components/checkout/OrderShell";
+import { legacyFollowUp } from "@/lib/legacy-followup";
 
 export const Route = createFileRoute("/upsell/$id")({
   head: () => ({
-    meta: [{ title: "Oferta especial | AiDEX" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Ofertas do pedido | AiDEX" }, { name: "description", content: "Ofertas adicionais para seu pedido AiDEX confirmado." }, { property: "og:title", content: "Ofertas do pedido | AiDEX" }, { property: "og:description", content: "Ofertas adicionais para seu pedido AiDEX confirmado." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }, { name: "robots", content: "noindex" }],
   }),
   component: Page,
 });
@@ -52,18 +53,24 @@ function Page() {
   const sel = upsellSelection(bundle, chosen);
   const withKit = sel.products.includes("kit");
 
-  const isCard = session?.method === "card" && !!session.cardHash && !usePix;
+  const isCard = session?.method === "card" && !!(session.cardToken || session.cardHash) && !usePix;
   const toggle = (p: UpsellProduct) =>
     setChosen((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (isCard) {
+        if (!session) throw new Error("Sessão não encontrada.");
+        if (session.id.startsWith("le_")) {
+          const r = await legacyFollowUp(session, sel.products, Math.round(sel.total * 100), withKit ? (session.installments ?? 1) : 1);
+          return { ...r, qrcode: "", method: "card" as const };
+        }
+        if (!session.cardHash) throw new Error("Cartão indisponível. Pague com Pix.");
         const r = await cardFn({
           data: {
             parentId: id,
             origin: window.location.origin,
-            cardHash: session!.cardHash!,
+            cardHash: session.cardHash,
             products: sel.products,
           },
         });

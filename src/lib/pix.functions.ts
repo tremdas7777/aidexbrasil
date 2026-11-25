@@ -9,7 +9,7 @@ import {
   getOrder,
   findUpsellOf,
 } from "@/lib/pix-orders.server";
-import { createCardTransaction, CARD_ORDER_PREFIX, getHypercashKeys } from "@/lib/hypercash.server";
+import { createCardTransaction, CARD_ORDER_PREFIX } from "@/lib/hypercash.server";
 import { createPix } from "@/lib/pix-gateway.server";
 import { isPaidStatus } from "@/lib/pix-status";
 import { UPSELL_PRODUCTS, upsellSelection } from "@/lib/upsell";
@@ -17,6 +17,8 @@ import { getRequest } from "@tanstack/react-start/server";
 import { checkoutTotals, CARD_MAX_INSTALLMENTS } from "@/lib/payment-pricing";
 import { getGatewayProductName } from "@/lib/gateway-product.server";
 import { gatewayBumpTitle } from "@/lib/gateway-product";
+import { createLegacyCard, getLegacyPublicKey, LEGACY_API, LEGACY_SDK_URL } from "./legacy.server";
+import { LEGACY_ORDER_PREFIX, isLegacyOrderId, legacyPayinCardSchema, legacyRefused, assertLegacyPreparedAmount } from "./legacy";
 
 const utmSchema = z.record(z.string(), z.string().max(300).nullable()).optional().default({});
 
@@ -89,7 +91,7 @@ export type PixCharge = { id: string; qrcode: string; amount: number; status: st
 function requestMeta() {
   const h = getRequest()?.headers;
   return {
-    ip: h?.get("cf-connecting-ip") ?? h?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+    ip: h?.get("cf-connecting-ip") ?? h?.get("x-real-ip") ?? h?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
     ua: h?.get("user-agent") ?? null,
   };
 }
@@ -129,7 +131,7 @@ export const createPixCharge = createServerFn({ method: "POST" })
       products: bundle.price + bumpsTotal(chosenBumps(data).map((b) => b.id)),
       frete: freteOpt.price,
       method: "pix",
-      pixDiscount: await isCardEnabled().catch(() => false),
+      pixDiscount: await publicPixDiscount(),
     });
     const amount = totals.total;
     const { ip, ua } = requestMeta();
@@ -172,7 +174,7 @@ export const createPixCharge = createServerFn({ method: "POST" })
     return { id: charge.id, qrcode: charge.qrcode, amount, status: charge.status };
   });
 
-export type CardCharge = { id: string; amount: number; status: string; paid: boolean };
+export type CardCharge = { id: string; amount: number; status: string; paid: boolean; threeDSecurePending?: boolean; threeDSecure?: unknown; cardToken?: string };
 
 /** Liga/desliga do cartão no admin (site_settings.card_enabled). DESLIGADO até ativar no painel. */
 async function isCardEnabled(): Promise<boolean> {
@@ -188,118 +190,72 @@ async function isCardEnabled(): Promise<boolean> {
 /** Com o cartão desligado, quem está logado no admin (mesmo navegador) ainda consegue testar. */
 const isAdmin = (pwd?: string) => !!pwd && pwd === process.env["ADMIN_PASSWORD"];
 
-/** Chave PÚBLICA da HyperCash (pode ir para o navegador; a secreta fica só no servidor). */
+/** O desconto só fica ativo se o cartão estiver liberado e houver chave Legacy. */
+async function publicPixDiscount(): Promise<boolean> {
+  return (await isCardEnabled().catch(() => false)) && !!(await getLegacyPublicKey().catch(() => null));
+}
+
+/** Somente a chave pública e os endereços públicos do SDK vão ao checkout. */
 export const getCardConfig = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) =>
-    z
-      .object({ adminPassword: z.string().max(200).optional() })
-      .optional()
-      .parse(d),
-  )
+  .inputValidator((d: unknown) => z.object({ adminPassword: z.string().max(200).optional() }).optional().parse(d))
   .handler(async ({ data }) => {
-    // Liberado aos clientes no admin = cartão para todos + desconto do Pix.
     const publicOn = await isCardEnabled().catch(() => false);
-    const enabled = publicOn || isAdmin(data?.adminPassword);
-    const publicKey = enabled ? (await getHypercashKeys().catch(() => null))?.public : null;
-    return { enabled: enabled && !!publicKey, publicKey: publicKey ?? null, pixDiscount: publicOn };
+    const publicKey = await getLegacyPublicKey().catch(() => null);
+    const enabled = !!publicKey && (publicOn || isAdmin(data?.adminPassword));
+    return { enabled, provider: enabled ? "legacy" as const : null, publicKey: enabled ? publicKey : null, sdkUrl: enabled ? LEGACY_SDK_URL : null, apiBaseUrl: enabled ? LEGACY_API : null, pixDiscount: publicOn && !!publicKey };
   });
 
+const cardMetaSchema = z.object({
+  last4: z.string().regex(/^\d{4}$/).optional(),
+  brand: z.string().max(40).optional(),
+  token: z.string().min(5).max(300).optional(),
+}).optional();
 const cardSchema = customerSchema.extend({
-  // Token gerado pelo SDK da HyperCash no navegador. O número do cartão nunca chega aqui.
-  cardHash: z.string().min(10).max(4000),
+  cardPrepared: legacyPayinCardSchema,
+  cardMeta: cardMetaSchema,
+  antifraudSessionId: z.string().min(1).max(300).nullable().optional(),
+  preparedAmount: z.number().int().positive(),
   installments: z.number().int().min(1).max(CARD_MAX_INSTALLMENTS),
-  adminPassword: z.string().max(200).optional(),
 });
 
-/** Cobra no cartão (HyperCash). Preço de tabela, sem o desconto do Pix. */
+/** Cartão Legacy: preço calculado no servidor, objeto do SDK intacto e sem retry. */
 export const createCardCharge = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => cardSchema.parse(d))
   .handler(async ({ data }): Promise<CardCharge> => {
     await assertStoreOpen(data.adminPassword);
-    if (!isAdmin(data.adminPassword) && !(await isCardEnabled()))
-      throw new Error("Pagamento com cartão indisponível. Pague com Pix.");
+    if (!isAdmin(data.adminPassword) && !(await isCardEnabled())) throw new Error("Pagamento com cartão indisponível. Pague com Pix.");
     const bundle = getBundle(parseBundleId(data.plano) ?? "30");
-    if (
-      data.frete === "gratis" &&
-      !isFreeShippingEligible(bundle.price + bumpsTotal(chosenBumps(data).map((b) => b.id)))
-    ) {
-      throw new Error(
-        `Frete grátis disponível apenas para compras acima de R$ ${FREE_SHIPPING_MIN}.`,
-      );
-    }
+    const products = bundle.price + bumpsTotal(chosenBumps(data).map((b) => b.id));
+    if (data.frete === "gratis" && !isFreeShippingEligible(products)) throw new Error(`Frete grátis disponível apenas para compras acima de R$ ${FREE_SHIPPING_MIN}.`);
     if (!data.address) throw new Error("Confira o CEP e o endereço de entrega.");
     const freteOpt = getFrete(data.frete);
-    const totals = checkoutTotals({
-      products: bundle.price + bumpsTotal(chosenBumps(data).map((b) => b.id)),
-      frete: freteOpt.price,
-      method: "card",
-      pixDiscount: false,
-    });
+    const totals = checkoutTotals({ products, frete: freteOpt.price, method: "card", pixDiscount: false });
+    assertLegacyPreparedAmount(data.preparedAmount, totals.total, data.cardPrepared.installments, data.installments);
     const { ip, ua } = requestMeta();
-    const a = data.address;
-    const address = {
-      street: a.street,
-      streetNumber: a.number,
-      complement: a.complement || "Sem complemento",
-      zipCode: a.zipcode,
-      neighborhood: a.neighborhood,
-      city: a.city,
-      state: a.state.toUpperCase(),
-      country: "BR" as const,
-    };
-    const gatewayName = await getGatewayProductName();
-    const tx = await createCardTransaction({
-      amount: totals.total,
-      cardHash: data.cardHash,
+    const tx = await createLegacyCard({
+      amount: totals.total, cardPrepared: data.cardPrepared,
+      ...(data.antifraudSessionId ? { antifraudSessionId: data.antifraudSessionId } : {}),
       installments: data.installments,
       customer: { name: data.name, email: data.email, phone: data.phone, cpf: data.cpf },
-      address,
-      shippingFee: totals.frete,
-      // Nome genérico (igual ao Pix) — sem detalhes do produto real na fatura.
-      items: [
-        { title: gatewayName, unitPrice: Math.round(bundle.price * 100), quantity: 1 },
-        ...chosenBumps(data).map((b) => ({
-          title: gatewayBumpTitle(gatewayName, b.id),
-          unitPrice: Math.round(b.price * 100),
-          quantity: 1,
-        })),
-      ],
-      postbackUrl: `${new URL(data.origin).origin}/api/public/pix-webhook?gw=hc`,
-      ip,
+      address: data.address, description: await getGatewayProductName(),
+      webhookUrl: "https://aidexbrasil.com/api/public/pix-webhook?gw=le", ip,
     });
-    if (["refused", "canceled", "cancelled", "failed"].includes(tx.status)) {
-      throw new Error(
-        `Pagamento recusado: ${tx.refusedReason ?? "o banco emissor não informou o motivo"}. Confira os dados do cartão ou pague com Pix.`,
-      );
-    }
-    const id = `${CARD_ORDER_PREFIX}${tx.id}`;
-    const orderData = {
-      createdAt: Date.now(),
-      id,
-      amountCents: totals.total,
-      customer: {
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        cpf: data.cpf,
-        endereco: data.endereco?.replace(/\s+/g, " ").trim(),
-        address: data.address,
-        frete: { id: freteOpt.id, name: freteOpt.name, price: freteOpt.price },
-        bumps: storedBumps(data),
-        method: "card" as const,
-        installments: data.installments,
-        ...(tx.card ? { card: tx.card } : {}),
-      },
-      bundleId: bundle.id,
-      bundleName: orderName(bundle.name, data),
-      utm: data.utm,
-      ip,
-      ua,
+    const id = `${LEGACY_ORDER_PREFIX}${tx.id}`;
+    // Salva antes de devolver o desafio 3DS. Nenhum token nem dado de cartão fica no banco.
+    await saveOrder({ createdAt: Date.now(), id, amountCents: totals.total,
+      customer: { name: data.name, email: data.email, phone: data.phone, cpf: data.cpf,
+        ...(data.endereco ? { endereco: data.endereco.replace(/\s+/g, " ").trim() } : {}),
+        address: data.address, frete: { id: freteOpt.id, name: freteOpt.name, price: freteOpt.price },
+        bumps: storedBumps(data), method: "card", installments: data.installments,
+        ...(data.cardMeta ? { card: { ...(data.cardMeta.last4 ? { lastDigits: data.cardMeta.last4 } : {}), ...(data.cardMeta.brand ? { brand: data.cardMeta.brand } : {}) } } : {}),
+      }, bundleId: bundle.id, bundleName: orderName(bundle.name, data), utm: data.utm, ip, ua,
+    });
+    if (legacyRefused(tx.status, tx.threeDSecurePending)) throw new Error("Pagamento recusado. Confira os dados do cartão ou pague com Pix.");
+    return { id, amount: totals.total, status: tx.status,
+      paid: !tx.threeDSecurePending && isPaidStatus(tx.status), threeDSecurePending: tx.threeDSecurePending === true,
+      threeDSecure: tx.threeDSecurePending ? tx.threeDSecure : null,
+      ...(data.cardMeta?.token ? { cardToken: data.cardMeta.token } : {}),
     };
-    await saveOrder(orderData);
-    const paid = isPaidStatus(tx.status);
-    // Aprovado na hora: a conversão é reportada pela página do pedido (getPixStatus → reportPaidOnce).
-    return { id, amount: totals.total, status: tx.status, paid };
   });
 
 /**
@@ -320,9 +276,12 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
       .object({
-        parentId: z.string().regex(/^hc_[\w-]{1,64}$/),
+        parentId: z.string().regex(/^(?:hc_|le_)[\w-]{1,61}$/),
         origin: z.string().url(),
-        cardHash: z.string().min(10).max(4000),
+        cardHash: z.string().min(10).max(4000).optional(),
+        cardPrepared: legacyPayinCardSchema.optional(),
+        antifraudSessionId: z.string().min(1).max(300).nullable().optional(),
+        preparedAmount: z.number().int().positive().optional(),
         // Ofertas marcadas na tela pós-compra (kit extra, seguro de entrega e envio expresso), numa cobrança só.
         products: z
           .array(z.enum(UPSELL_PRODUCTS))
@@ -369,7 +328,20 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
     if (!a) throw new Error("Pedido sem endereço.");
     const gatewayName = await getGatewayProductName();
     const { ip, ua } = requestMeta();
-    const tx = await createCardTransaction({
+    const legacy = isLegacyOrderId(parent.id);
+    const tx = await (async () => {
+      if (legacy) {
+        if (!data.cardPrepared || data.preparedAmount == null) throw new Error("Cartão indisponível. Pague com Pix.");
+        assertLegacyPreparedAmount(data.preparedAmount, amount, data.cardPrepared.installments, installments);
+        const result = await createLegacyCard({ amount, cardPrepared: data.cardPrepared,
+          ...(data.antifraudSessionId ? { antifraudSessionId: data.antifraudSessionId } : {}),
+          installments, customer: { name: c.name, email: c.email, phone: c.phone, cpf: c.cpf }, address: a,
+          description: gatewayName, webhookUrl: "https://aidexbrasil.com/api/public/pix-webhook?gw=le", ip,
+        });
+        return { ...result, card: null };
+      }
+      if (!data.cardHash) throw new Error("Token indisponível. Pague com Pix.");
+      return createCardTransaction({
       amount,
       cardHash: data.cardHash,
       installments,
@@ -386,15 +358,17 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
       },
       shippingFee: 0,
       items: sel.items.map((i) => ({
-        title: i.product === "kit" ? gatewayName : i.title,
+        title: gatewayName,
         unitPrice: Math.round(i.price * 100),
         quantity: 1,
       })),
       postbackUrl: `${new URL(data.origin).origin}/api/public/pix-webhook?gw=hc`,
       ip,
     });
-    const refused = ["refused", "canceled", "cancelled", "failed"].includes(tx.status);
-    const id = `${CARD_ORDER_PREFIX}${tx.id}`;
+    })();
+    const needsAuthentication = legacy && "threeDSecurePending" in tx && tx.threeDSecurePending === true;
+    const refused = legacyRefused(tx.status, needsAuthentication);
+    const id = `${legacy ? LEGACY_ORDER_PREFIX : CARD_ORDER_PREFIX}${tx.id}`;
     const orderData = {
       createdAt: Date.now(),
       id,
@@ -421,6 +395,10 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
       fbp: parent.fbp,
       fbc: parent.fbc,
     };
+    if (needsAuthentication) {
+      await saveOrder(orderData);
+      throw new Error("Este cartão exige nova autenticação. Pague essa oferta com Pix.");
+    }
     if (refused)
       throw new Error(
         `O banco não aprovou a cobrança neste cartão: ${tx.refusedReason ?? "motivo não informado"}.`,

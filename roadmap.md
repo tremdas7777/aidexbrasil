@@ -1,5 +1,7 @@
 # Integração Legacy Ecom (Pix + cartão)
 
+- [ ] Aplicar o documento atualizado enviado em 25/11: payinCard como objeto intacto, resposta completa no 3DS e nenhuma repetição automática no cartão; manter preços e outros gateways.
+
 - [ ] 1. Chave em private_settings ("legacy_api_key", reserva LEGACY_API_KEY) + card "Legacy Ecom" no /admin (salvar com validação de formato, testar via /whoami, remover, mostrar só pk mascarada)
 - [ ] 2. Servidor: src/lib/legacy.server.ts (whoami, POST /payin Pix e cartão, GET /payin/{id} com approved→paid, retry 3x em 429/5xx/PROVIDER_ERROR, PayerDataError sem fallback)
 - [ ] 3. Roteamento: prefixo le_ em pix-gateway.server.ts (lista de gateways, createPix, fetchPixStatus, fallback 1x p/ próximo com chave; Legacy só com payerIp, PayShark só com endereço) + webhook ?gw=le (sem assinatura: valida id, consulta status real, sempre 200)

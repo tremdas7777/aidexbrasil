@@ -13,6 +13,8 @@ import { getPaySharkKey, paysharkCashin, paysharkStatus } from "@/lib/payshark.s
 import { getKokuKey, kokuCashin, kokuStatus } from "@/lib/koku.server";
 import { getPixBlackKey, pixBlackCashin, pixBlackStatus } from "@/lib/pixblack.server";
 import { getWappiKey, wappiCashin, wappiStatus } from "@/lib/wappi.server";
+import { createLegacyPix, getLegacyKey, legacyStatus } from "./legacy.server";
+import { LEGACY_ORDER_PREFIX, isLegacyOrderId, PayerDataError } from "./legacy";
 export const PIX_GATEWAYS = [
   "pixgate",
   "umbrella",
@@ -21,6 +23,7 @@ export const PIX_GATEWAYS = [
   "koku",
   "pixblack",
   "wappi",
+  "legacy",
 ] as const;
 export type PixGateway = (typeof PIX_GATEWAYS)[number];
 export const PIX_GATEWAY_LABEL: Record<PixGateway, string> = {
@@ -31,6 +34,7 @@ export const PIX_GATEWAY_LABEL: Record<PixGateway, string> = {
   koku: "Koku",
   pixblack: "Pix Black",
   wappi: "Wappi",
+  legacy: "Legacy Ecom",
 };
 
 /** Pedidos Pix da Umbrella são guardados com este prefixo (os da PixGate ficam sem prefixo). */
@@ -79,7 +83,7 @@ async function savedChoice(): Promise<PixGateway | null> {
 
 /** Quais gateways têm chave cadastrada (painel ou secret do Lovable). */
 async function configured(): Promise<Record<PixGateway, boolean>> {
-  const [umbrella, pixgate, sagacepay, payshark, koku, pixblack, wappi] = await Promise.all([
+  const [umbrella, pixgate, sagacepay, payshark, koku, pixblack, wappi, legacy] = await Promise.all([
     getUmbrellaKey().catch(() => null),
     getPixgateKey().catch(() => null),
     getSagacePayKey().catch(() => null),
@@ -87,6 +91,7 @@ async function configured(): Promise<Record<PixGateway, boolean>> {
     getKokuKey().catch(() => null),
     getPixBlackKey().catch(() => null),
     getWappiKey().catch(() => null),
+    getLegacyKey().catch(() => null),
   ]);
   return {
     umbrella: !!umbrella,
@@ -96,6 +101,7 @@ async function configured(): Promise<Record<PixGateway, boolean>> {
     koku: !!koku,
     pixblack: !!pixblack,
     wappi: !!wappi,
+    legacy: !!legacy,
   };
 }
 
@@ -140,8 +146,27 @@ export async function createPix(o: {
   origin: string;
   ip?: string | null | undefined;
 }): Promise<{ id: string; qrcode: string; status: string }> {
-  const { active } = await getPixGatewayState();
+  const { active, configured: keys } = await getPixGatewayState();
+  if (active === "legacy") {
+    try {
+      return await createPixOnGateway(o, active);
+    } catch (error) {
+      if (error instanceof PayerDataError) throw error;
+      const fallback = PIX_GATEWAYS.find((g) => g !== active && keys[g] && (g !== "payshark" || !!o.address));
+      if (!fallback) throw error;
+      return createPixOnGateway(o, fallback);
+    }
+  }
+  return createPixOnGateway(o, active);
+}
+
+async function createPixOnGateway(o: { amount: number; customer: PixCustomer; address?: UmbrellaAddress | undefined; description: string; origin: string; ip?: string | null | undefined }, active: PixGateway): Promise<{ id: string; qrcode: string; status: string }> {
   const webhook = `${new URL(o.origin).origin}/api/public/pix-webhook`;
+  if (active === "legacy") {
+    const tx = await createLegacyPix({ ...o, webhookUrl: `${webhook}?gw=le` });
+    if (!tx.qrcode) throw new Error("Não foi possível gerar o Pix.");
+    return { id: `${LEGACY_ORDER_PREFIX}${tx.id}`, qrcode: tx.qrcode, status: tx.status };
+  }
   if (active === "umbrella") {
     const tx = await createUmbrellaPix({
       amount: o.amount,
@@ -211,6 +236,7 @@ export async function createPix(o: {
 
 /** Status real de um pedido Pix no gateway que gerou o Pix. Valor em centavos. */
 export async function fetchPixStatus(id: string): Promise<{ status: string; amount: number }> {
+  if (isLegacyOrderId(id)) return legacyStatus(id.slice(LEGACY_ORDER_PREFIX.length));
   if (isUmbrellaOrderId(id)) {
     const tx = await getUmbrellaTransaction(id.slice(UMBRELLA_ORDER_PREFIX.length));
     return { status: tx?.status ?? "waiting_payment", amount: tx?.amount ?? 0 };

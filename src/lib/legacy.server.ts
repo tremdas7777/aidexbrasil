@@ -12,6 +12,7 @@ import {
 } from "@/lib/legacy";
 
 export const LEGACY_API = "https://api.legacyecom.com.br";
+export const LEGACY_SDK_URL = `${LEGACY_API}/checkout/sdk/legacy-pay.js`;
 
 const KEY = "legacy_api_key";
 // A tela do pedido consulta o status a cada poucos segundos: guarda a chave por 1 minuto.
@@ -81,10 +82,10 @@ type LegacyReply = { res: Response; json: any };
  * POST com retry: até 3 tentativas com espera crescente, só em 429, 5xx ou
  * code PROVIDER_ERROR. Erro de dado do cliente (4xx) volta na hora.
  */
-async function legacyPost(path: string, body: unknown): Promise<LegacyReply> {
+async function legacyPost(path: string, body: unknown, retry = true): Promise<LegacyReply> {
   let last: LegacyReply | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt * attempt));
+  for (let attempt = 0; attempt < (retry ? 3 : 1); attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
     const res = await fetch(`${LEGACY_API}${path}`, {
       method: "POST",
       headers: {
@@ -101,23 +102,22 @@ async function legacyPost(path: string, body: unknown): Promise<LegacyReply> {
     const retryable = res.status === 429 || res.status >= 500 || code === "PROVIDER_ERROR";
     if (!retryable) return last;
   }
-  return last!;
+  if (!last) throw new Error("Pagamento indisponível no momento.");
+  return last;
 }
 
 /** Erro da Legacy: dado do pagador vira PayerDataError (sem fallback); o resto é erro do gateway. */
 function throwLegacyError(res: Response, json: LegacyReply["json"]): never {
   const code = String(json?.code ?? json?.error?.code ?? "");
   const field =
-    String(json?.field ?? json?.error?.field ?? json?.details?.field ?? "") || null;
+    JSON.stringify(json?.fields ?? json?.field ?? json?.error?.field ?? json?.details?.field ?? json?.message ?? "") || null;
   const payer = payerDataError(code, field);
   if (payer) throw payer;
   // Log só com status HTTP e código/mensagem do gateway — nunca dado do cliente ou do cartão.
-  const msg = json?.message ?? json?.error?.message;
   console.error(
     "Legacy error",
     res.status,
     code,
-    typeof msg === "string" ? msg.slice(0, 300) : "",
   );
   throw new Error(
     "Não foi possível processar o pagamento. Confira os dados e tente novamente.",
@@ -143,7 +143,7 @@ const legacyAddress = (a: LegacyAddress) => ({
   neighborhood: a.neighborhood,
   city: a.city,
   state: a.state.toUpperCase(),
-  zipcode: a.zipcode.replace(/\D/g, ""),
+  zipCode: a.zipcode.replace(/\D/g, ""),
 });
 
 const legacyCustomer = (c: LegacyCustomer, address?: LegacyAddress) => ({
@@ -212,7 +212,7 @@ export async function createLegacyPix(o: {
  */
 export async function createLegacyCard(o: {
   amount: number;
-  cardPrepared: string;
+  cardPrepared: Record<string, unknown>;
   antifraudSessionId?: string | undefined;
   installments: number;
   customer: LegacyCustomer;
@@ -238,7 +238,7 @@ export async function createLegacyCard(o: {
     installments: o.installments,
     customer: legacyCustomer(o.customer, o.address),
     items: [{ title: o.description.slice(0, 200), unitPrice: o.amount, quantity: 1 }],
-  });
+  }, false);
   const tx = txOf(json);
   if (!res.ok || !tx?.id) throwLegacyError(res, json);
   // Log só com id e status — nunca dado do cartão.
@@ -248,7 +248,7 @@ export async function createLegacyCard(o: {
     status: normalizeLegacyStatus(tx?.status),
     amount: Math.round(Number(tx?.amount ?? o.amount)),
     threeDSecurePending: tx?.threeDSecurePending === true,
-    threeDSecure: tx?.threeDSecure,
+    threeDSecure: json,
     card: tx?.card ? { last4: tx.card.last4, brand: tx.card.brand } : null,
     refusedReason:
       typeof tx?.refusedReason === "string"

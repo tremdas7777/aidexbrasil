@@ -36,6 +36,8 @@ export type PixSession = {
   installments?: number;
   /** Token do cartão gerado pela HyperCash (expira em ~15 min). Só nesta aba, nunca no banco. */
   cardHash?: string;
+  /** Token público cvt_ da Legacy, só nesta aba. */
+  cardToken?: string;
 };
 
 const key = (id: string) => `pix:${id}`;

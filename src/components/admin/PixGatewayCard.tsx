@@ -30,8 +30,10 @@ import {
   testUmbrellaFn,
 } from "@/lib/pix-gateway.functions";
 
-type Gateway = "pixgate" | "umbrella" | "sagacepay" | "payshark" | "koku" | "pixblack" | "wappi";
-const GATEWAYS = ["pixgate", "umbrella", "sagacepay", "payshark", "koku", "pixblack", "wappi"] as const;
+import { saveLegacyKeyFn, deleteLegacyKeyFn, testLegacyFn } from "@/lib/legacy.functions";
+
+type Gateway = "pixgate" | "umbrella" | "sagacepay" | "payshark" | "koku" | "pixblack" | "wappi" | "legacy";
+const GATEWAYS = ["pixgate", "umbrella", "sagacepay", "payshark", "koku", "pixblack", "wappi", "legacy"] as const;
 type KeyInfo = { key: string | null; source: "admin" | "secret" | null };
 type Status = {
   selected: Gateway;
@@ -48,6 +50,7 @@ const LABEL: Record<Gateway, string> = {
   koku: "Koku",
   pixblack: "Pix Black",
   wappi: "Wappi",
+  legacy: "Legacy Ecom",
 };
 const SECRET: Record<Gateway, string> = {
   pixgate: "PIXGATE_API_KEY",
@@ -57,6 +60,7 @@ const SECRET: Record<Gateway, string> = {
   koku: "KOKU_API_KEY",
   pixblack: "PIXBLACK_API_KEY",
   wappi: "WAPPI_API_KEY",
+  legacy: "LEGACY_API_KEY",
 };
 
 /** Escolha do gateway do Pix (PixGate, Umbrella, SagacePay ou PayShark) + chave de cada um. */
@@ -84,6 +88,9 @@ export function PixGatewayCard({ password }: { password: string }) {
   const saveWappi = useServerFn(saveWappiKeyFn);
   const deleteWappi = useServerFn(deleteWappiKeyFn);
   const testWappi = useServerFn(testWappiFn);
+  const saveLegacy = useServerFn(saveLegacyKeyFn);
+  const deleteLegacy = useServerFn(deleteLegacyKeyFn);
+  const testLegacy = useServerFn(testLegacyFn);
   const keyFns = {
     pixgate: { save: savePixgateFn, remove: deletePixgateFn, test: testPixgate },
     umbrella: { save: saveUmbrellaFn, remove: deleteUmbrellaFn, test: testUmbrella },
@@ -91,6 +98,7 @@ export function PixGatewayCard({ password }: { password: string }) {
     payshark: { save: savePaySharkFn, remove: deletePaySharkFn, test: testPayShark },
     koku: { save: saveKokuFn, remove: deleteKokuFn, test: testKoku },
     pixblack: { save: savePixBlackFn, remove: deletePixBlackFn, test: testPixBlack },
+    legacy: { save: saveLegacy, remove: deleteLegacy, test: testLegacy },
     wappi: { save: saveWappi, remove: deleteWappi, test: testWappi },
   };
 
@@ -229,7 +237,7 @@ function KeySection({
   const [key, setKeyRaw] = useState("");
   const [pub, setPub] = useState("");
   const [sec, setSec] = useState("");
-  const isPair = gateway === "wappi";
+  const isPair = gateway === "wappi" || gateway === "legacy";
   const finalKey = isPair ? (pub.trim() && sec.trim() ? `${pub.trim()}:${sec.trim()}` : "") : key.trim();
   const setKey = (v: string) => { setKeyRaw(v); setPub(""); setSec(""); };
   const label = loading
@@ -256,8 +264,8 @@ function KeySection({
       </div>
       {isPair ? (
         <>
-          <Input autoComplete="off" aria-label="Chave pública Wappi" placeholder={info?.key ? `Chave em uso (${info.key}) — chave pública` : "Chave pública"} value={pub} onChange={(e) => setPub(e.target.value)} />
-          <Input type="password" autoComplete="off" aria-label="Chave secreta Wappi" placeholder="Chave secreta" value={sec} onChange={(e) => setSec(e.target.value)} />
+          <Input autoComplete="off" aria-label={`Chave pública ${LABEL[gateway]}`} placeholder={info?.key ? `Chave em uso (${info.key}) — chave pública` : "Chave pública"} value={pub} onChange={(e) => setPub(e.target.value)} />
+          <Input type="password" autoComplete="off" aria-label={`Chave secreta ${LABEL[gateway]}`} placeholder="Chave secreta" value={sec} onChange={(e) => setSec(e.target.value)} />
         </>
       ) : (
       <Input

@@ -8,10 +8,11 @@ import { loadPixSession, savePixSession, type PixSession } from "@/lib/pix-sessi
 import { EXPRESS_SHIPPING } from "@/lib/upsell";
 import { brl } from "@/components/checkout/parts";
 import { Shell } from "@/components/checkout/OrderShell";
+import { legacyFollowUp } from "@/lib/legacy-followup";
 
 export const Route = createFileRoute("/expresso/$id")({
   head: () => ({
-    meta: [{ title: "Oferta especial | AiDEX" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Envio prioritário | AiDEX" }, { name: "description", content: "Envio prioritário adicional para seu pedido AiDEX." }, { property: "og:title", content: "Envio prioritário | AiDEX" }, { property: "og:description", content: "Envio prioritário adicional para seu pedido AiDEX." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }, { name: "robots", content: "noindex" }],
   }),
   component: Page,
 });
@@ -36,16 +37,22 @@ function Page() {
     else setSession(s);
   }, [id, navigate]);
 
-  const isCard = session?.method === "card" && !!session.cardHash && !usePix;
+  const isCard = session?.method === "card" && !!(session.cardToken || session.cardHash) && !usePix;
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (isCard) {
+        if (!session) throw new Error("Sessão não encontrada.");
+        if (session.id.startsWith("le_")) {
+          const r = await legacyFollowUp(session, ["expresso"], Math.round(EXPRESS_SHIPPING.price * 100), 1);
+          return { ...r, qrcode: "", method: "card" as const };
+        }
+        if (!session.cardHash) throw new Error("Cartão indisponível. Pague com Pix.");
         const r = await cardFn({
           data: {
             parentId: id,
             origin: window.location.origin,
-            cardHash: session!.cardHash!,
+            cardHash: session.cardHash,
             products: ["expresso"],
           },
         });

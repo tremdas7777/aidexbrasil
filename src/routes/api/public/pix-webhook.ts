@@ -68,6 +68,20 @@ export const Route = createFileRoute("/api/public/pix-webhook")({
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payloads dos gateways legados
         const body = (await request.json().catch(() => null)) as any;
+        if (gw === "le") {
+          const raw = body?.id ?? body?.data?.id;
+          if (typeof raw !== "string" || !/^[\w-]{1,61}$/.test(raw)) return Response.json({ ok: true });
+          const id = `le_${raw}`;
+          try {
+            const { legacyStatus } = await import("@/lib/legacy.server");
+            const { reportPaidOnce, isPaidStatus } = await import("@/lib/pix-orders.server");
+            const { status, amount } = await legacyStatus(raw);
+            if (isPaidStatus(status)) await reportPaidOnce(id, amount);
+          } catch {
+            console.error("legacy-webhook status verification failed");
+          }
+          return Response.json({ ok: true });
+        }
         const isUmbrella = gw === "um";
         const isSagace = gw === "sg";
         const isPayShark = gw === "ps";

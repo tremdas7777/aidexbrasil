@@ -34,6 +34,9 @@ import {
   testPaySharkKey,
 } from "./payshark.server";
 
+import { getLegacyKeySource } from "./legacy.server";
+import { maskLegacyPublicKey, parseLegacyKey } from "./legacy";
+
 const pw = z.object({ password: z.string().min(1).max(200) });
 
 function assertAdmin(password: string) {
@@ -50,7 +53,7 @@ export const getPixGatewayStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => pw.parse(d))
   .handler(async ({ data }) => {
     assertAdmin(data.password);
-    const [state, pixgate, umbrella, sagacepay, payshark, koku, pixblack, wappi] = await Promise.all([
+    const [state, pixgate, umbrella, sagacepay, payshark, koku, pixblack, wappi, legacy] = await Promise.all([
       getPixGatewayState(),
       getPixgateKeySource(),
       getUmbrellaKeySource(),
@@ -59,6 +62,7 @@ export const getPixGatewayStatus = createServerFn({ method: "POST" })
       getKokuKeySource(),
       getPixBlackKeySource(),
       getWappiKeySource(),
+      getLegacyKeySource(),
     ]);
     return {
       ...state,
@@ -69,6 +73,7 @@ export const getPixGatewayStatus = createServerFn({ method: "POST" })
         payshark: { key: payshark.key ? mask(payshark.key) : null, source: payshark.source },
         koku: { key: koku.key ? mask(koku.key) : null, source: koku.source },
         pixblack: { key: pixblack.key ? mask(pixblack.key) : null, source: pixblack.source },
+        legacy: { key: legacy.key ? maskLegacyPublicKey(parseLegacyKey(legacy.key).publicKey) : null, source: legacy.source },
         wappi: { key: wappi.key ? mask(wappi.key) : null, source: wappi.source },
       },
     };

@@ -15,6 +15,11 @@ export const Route = createFileRoute("/pedido/$id")({
   head: () => ({
     meta: [
       { title: "Pedido | AiDEX" },
+      { name: "description", content: "Acompanhe a confirmação segura do pagamento do seu pedido AiDEX." },
+      { property: "og:title", content: "Pedido | AiDEX" },
+      { property: "og:description", content: "Acompanhe a confirmação segura do pagamento do seu pedido AiDEX." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -66,7 +71,7 @@ function Page() {
   const status = data?.status ?? "waiting_payment";
   // "paid" vem do servidor (regra única em src/lib/pix-status.ts) — o navegador não decide.
   const paid = data?.paid === true;
-  const refused = ["failed", "refused", "canceled", "cancelled", "chargedback", "refunded"].includes(status);
+  const refused = ["failed", "refused", "canceled", "cancelled", "chargedback", "chargeback", "refunded", "med", "expired"].includes(status);
 
   // Dispara os eventos de compra uma única vez quando o pagamento cai.
   useEffect(() => {

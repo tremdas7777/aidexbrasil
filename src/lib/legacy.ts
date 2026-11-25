@@ -14,7 +14,18 @@ export const legacyKeySchema = z
   .trim()
   .min(10)
   .max(500)
-  .regex(/^pk_[A-Za-z0-9_-]+:sk_[A-Za-z0-9_-]+$/, "Cole o par completo no formato pk_...:sk_...");
+  .regex(/^pk_[A-Za-z0-9_]+:sk_[A-Za-z0-9_]+$/, "Cole o par completo no formato pk_...:sk_...");
+
+export const LEGACY_BAD_STATUSES = ["refused", "failed", "canceled", "cancelled", "refunded", "chargeback", "med", "expired"];
+export const legacyRefused = (status: string, pending = false) => !pending && LEGACY_BAD_STATUSES.includes(status);
+export const legacyPayinCardSchema = z.object({
+  token: z.string().min(5).max(300),
+  installments: z.number().int().min(1).max(12),
+}).passthrough().refine((c) => !["number", "cvv", "holderName", "expirationMonth", "expirationYear"].some((key) => key in c), "Envie somente o cartão preparado pelo SDK.");
+
+export function assertLegacyPreparedAmount(prepared: number, actual: number, cardInstallments: number, installments: number) {
+  if (prepared !== actual || cardInstallments !== installments) throw new Error("O valor ou as parcelas mudaram. Confira e tente novamente.");
+}
 
 export function parseLegacyKey(pair: string): { publicKey: string; secretKey: string } {
   const i = pair.indexOf(":");
@@ -69,8 +80,14 @@ export function payerDataError(code: string, field?: string | null): PayerDataEr
       c,
       "Pagamento não aprovado pela análise de segurança. Tente outra forma de pagamento.",
     );
-  if (c === "INVALID_DATA" && field && PAYER_FIELD_MESSAGE[field])
-    return new PayerDataError(c, PAYER_FIELD_MESSAGE[field]);
+  if (c === "INVALID_DATA" || c === "INVALID_CVV") {
+    const details = (field ?? "").toLowerCase();
+    const key = details.includes("cpf") ? "document" : details.includes("celular") ? "phone" : details.includes("nome") ? "name" : Object.keys(PAYER_FIELD_MESSAGE).find((k) => details.includes(k));
+    const message = key ? PAYER_FIELD_MESSAGE[key] : null;
+    if (message) return new PayerDataError(c, message);
+    if (c === "INVALID_CVV") return new PayerDataError(c, "CVV inválido. Confira o código de segurança do cartão.");
+    return new PayerDataError(c, "Confira os dados do pagamento e tente novamente.");
+  }
   return null;
 }
 
