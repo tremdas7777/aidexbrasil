@@ -4,15 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { SiteLayout } from "@/components/site/Layout";
 import { brand } from "@/lib/brand";
 import { getSiteSettings } from "@/lib/site-settings.functions";
-import { whatsappHref } from "@/lib/whatsapp";
-
-
+import { formatWhatsAppPhone, whatsappHref } from "@/lib/whatsapp";
 
 export const Route = createFileRoute("/contato")({
   head: () => ({
     meta: [
       { title: "Contato | AiDEX" },
-      { name: "description", content: "Fale com a equipe AiDEX. Suporte dedicado, atendimento humano." },
+      {
+        name: "description",
+        content: "Fale com a equipe AiDEX. Suporte dedicado, atendimento humano.",
+      },
       { property: "og:title", content: "Contato AiDEX" },
       { property: "og:description", content: "Fale com a equipe AiDEX." },
       { property: "og:url", content: "/contato" },
@@ -30,7 +31,9 @@ function Page() {
     staleTime: 60_000,
   });
   const whatsappEnabled = settings?.whatsappEnabled ?? false;
-  const waHref = whatsappHref();
+  const supportPhone = settings?.whatsappPhone ?? brand.whatsapp.phoneE164;
+  const supportPhoneDisplay = formatWhatsAppPhone(supportPhone);
+  const waHref = whatsappHref(undefined, supportPhone);
 
   return (
     <SiteLayout>
@@ -39,7 +42,8 @@ function Page() {
           <div className="lg:col-span-5">
             <span className="eyebrow text-[var(--primary)]">Suporte Médico</span>
             <h1 className="font-display text-5xl md:text-7xl leading-[0.95] mt-6 text-balance">
-              Estamos aqui <br /><span className="italic">para ajudar.</span>
+              Estamos aqui <br />
+              <span className="italic">para ajudar.</span>
             </h1>
             <p className="mt-6 text-[var(--ink)]/70 leading-relaxed max-w-sm">
               Nossa equipe clínica responde em até 24 horas em dias úteis.
@@ -57,9 +61,9 @@ function Page() {
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-2 text-[var(--primary)] hover:underline"
-                    aria-label={`Chamar no WhatsApp ${brand.whatsapp.display}`}
+                    aria-label={`Chamar no WhatsApp ${supportPhoneDisplay}`}
                   >
-                    +55 {brand.whatsapp.display}
+                    {supportPhoneDisplay}
                   </a>
                 </li>
               )}
@@ -71,9 +75,11 @@ function Page() {
           </div>
 
           <form
-
             className="lg:col-span-7 bg-white p-10 md:p-12 border border-[rgba(13,13,13,0.08)] rounded-xl space-y-8"
-            onSubmit={(e) => { e.preventDefault(); alert("Mensagem enviada!"); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              alert("Mensagem enviada!");
+            }}
           >
             <Field label="Nome" />
             <Field label="Email" type="email" />
@@ -88,12 +94,25 @@ function Page() {
   );
 }
 
-function Field({ label, type = "text", textarea }: { label: string; type?: string; textarea?: boolean }) {
-  const cls = "mt-3 w-full border-0 border-b border-[rgba(13,13,13,0.2)] bg-transparent px-0 py-3 focus:outline-none focus:border-[var(--ink)] transition-colors text-base";
+function Field({
+  label,
+  type = "text",
+  textarea,
+}: {
+  label: string;
+  type?: string;
+  textarea?: boolean;
+}) {
+  const cls =
+    "mt-3 w-full border-0 border-b border-[rgba(13,13,13,0.2)] bg-transparent px-0 py-3 focus:outline-none focus:border-[var(--ink)] transition-colors text-base";
   return (
     <label className="block">
       <span className="eyebrow text-[var(--ink)]/60">{label}</span>
-      {textarea ? <textarea required rows={5} className={cls} /> : <input required type={type} className={cls} />}
+      {textarea ? (
+        <textarea required rows={5} className={cls} />
+      ) : (
+        <input required type={type} className={cls} />
+      )}
     </label>
   );
 }

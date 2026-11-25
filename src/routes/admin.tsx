@@ -3,7 +3,12 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getAdminFunnel, verifyAdminPassword } from "@/lib/admin.functions";
-import { getSiteSettings, setStoreClosed, setWhatsappEnabled } from "@/lib/site-settings.functions";
+import {
+  getSiteSettings,
+  setStoreClosed,
+  setWhatsappEnabled,
+  setWhatsappPhone,
+} from "@/lib/site-settings.functions";
 import { UtmifyCard } from "@/components/admin/UtmifyCard";
 import { HypercashCard } from "@/components/admin/HypercashCard";
 import { LegacyCard } from "@/components/admin/LegacyCard";
@@ -182,8 +187,12 @@ function AdminPage() {
   // WhatsApp toggle
   const fetchSettings = useServerFn(getSiteSettings);
   const saveWhatsapp = useServerFn(setWhatsappEnabled);
+  const saveWhatsappPhone = useServerFn(setWhatsappPhone);
   const [whatsappEnabled, setWhatsappEnabledState] = useState<boolean | null>(null);
+  const [whatsappPhone, setWhatsappPhoneState] = useState("");
   const [savingWa, setSavingWa] = useState(false);
+  const [savingWaPhone, setSavingWaPhone] = useState(false);
+  const [waPhoneMessage, setWaPhoneMessage] = useState("");
   // Loja aberta/fechada: fechada, o checkout não cria cobrança nenhuma.
   const saveStore = useServerFn(setStoreClosed);
   const [storeClosed, setStoreClosedState] = useState<boolean | null>(null);
@@ -194,6 +203,7 @@ function AdminPage() {
     fetchSettings()
       .then((s) => {
         setWhatsappEnabledState(s.whatsappEnabled);
+        setWhatsappPhoneState(s.whatsappPhone);
         setStoreClosedState(s.storeClosed);
       })
       .catch(() => {});
@@ -208,6 +218,20 @@ function AdminPage() {
       setWhatsappEnabledState(r.enabled);
     } finally {
       setSavingWa(false);
+    }
+  };
+
+  const updateWhatsappPhone = async () => {
+    setSavingWaPhone(true);
+    setWaPhoneMessage("");
+    try {
+      const result = await saveWhatsappPhone({ data: { password, phone: whatsappPhone } });
+      setWhatsappPhoneState(result.phone);
+      setWaPhoneMessage("Número de suporte actualizado em toda a loja.");
+    } catch (e) {
+      setWaPhoneMessage(e instanceof Error ? e.message : "Não foi possível actualizar o número.");
+    } finally {
+      setSavingWaPhone(false);
     }
   };
 
@@ -342,6 +366,37 @@ function AdminPage() {
                     {savingWa ? "Salvando…" : whatsappEnabled ? "Desativar" : "Ativar"}
                   </Button>
                 </div>
+              </Card>
+              <Card className="mt-4 p-5 flex flex-col gap-3">
+                <div>
+                  <div className="font-medium">Número de suporte no WhatsApp</div>
+                  <div className="text-xs text-muted-foreground">
+                    Introduza o número internacional com DDI e DDD, por exemplo: +55 11 96246-0743.
+                    Será actualizado no botão flutuante, rodapé e página de contacto.
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="tel"
+                    autoComplete="tel"
+                    value={whatsappPhone}
+                    onChange={(e) => setWhatsappPhoneState(e.target.value)}
+                    placeholder="+55 11 99999-9999"
+                    aria-label="Número internacional de WhatsApp do suporte"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={savingWaPhone || !whatsappPhone.trim()}
+                    onClick={updateWhatsappPhone}
+                  >
+                    {savingWaPhone ? "A guardar…" : "Guardar número"}
+                  </Button>
+                </div>
+                {waPhoneMessage && (
+                  <p role="status" className="text-xs">
+                    {waPhoneMessage}
+                  </p>
+                )}
               </Card>
               <PixGatewayCard password={password} />
               <GatewayProductCard password={password} />

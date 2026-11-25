@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { whatsappHref } from "@/lib/whatsapp";
+import { formatWhatsAppPhone, whatsappHref } from "@/lib/whatsapp";
 
 import {
   Activity,
@@ -18,7 +18,6 @@ import logo from "@/assets/aidex-logo.png";
 import { brand } from "@/lib/brand";
 import { FREE_SHIPPING_LABEL } from "@/lib/bundles";
 import { getSiteSettings } from "@/lib/site-settings.functions";
-
 
 const productLinks = [
   { label: "AiDEX G7", to: "/produto" as const },
@@ -49,11 +48,7 @@ const highlights = [
   { Icon: Package, label: "Rastreio" },
 ] as const;
 
-function FooterLink({
-  item,
-}: {
-  item: { label: string; to?: string; href?: string };
-}) {
+function FooterLink({ item }: { item: { label: string; to?: string; href?: string } }) {
   const className = "text-sm text-white/65 hover:text-[var(--primary)] transition-colors";
   if ("to" in item && item.to) {
     return (
@@ -69,13 +64,7 @@ function FooterLink({
   );
 }
 
-function FooterColumn({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function FooterColumn({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
       <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-3">
@@ -95,9 +84,9 @@ export function Footer() {
     staleTime: 60_000,
   });
   const whatsappEnabled = settings?.whatsappEnabled ?? false;
-  const waHref = whatsappHref();
-
-
+  const supportPhone = settings?.whatsappPhone ?? brand.whatsapp.phoneE164;
+  const supportPhoneDisplay = formatWhatsAppPhone(supportPhone);
+  const waHref = whatsappHref(undefined, supportPhone);
 
   return (
     <footer className="bg-[var(--ink)] text-white">
@@ -144,13 +133,12 @@ export function Footer() {
                 target="_blank"
                 rel="noreferrer"
                 className="mt-4 inline-flex w-fit items-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_10px_24px_-12px_rgba(0,0,0,0.6)] ring-1 ring-white/10 transition hover:opacity-95 hover:shadow-[0_14px_30px_-14px_rgba(0,0,0,0.75)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-                aria-label={`Chamar no WhatsApp ${brand.whatsapp.display}`}
+                aria-label={`Chamar no WhatsApp ${supportPhoneDisplay}`}
               >
                 <MessageCircle className="w-3.5 h-3.5" strokeWidth={1.5} />
-                WhatsApp {brand.whatsapp.display}
+                WhatsApp {supportPhoneDisplay}
               </a>
             )}
-
           </div>
 
           <div className="col-span-1 md:col-span-2">
@@ -189,7 +177,10 @@ export function Footer() {
 
         <div className="mt-6 pt-6 border-t border-white/10 flex flex-wrap gap-x-5 gap-y-2">
           {highlights.map(({ Icon, label }) => (
-            <span key={label} className="inline-flex items-center gap-1.5 text-[10px] text-white/50">
+            <span
+              key={label}
+              className="inline-flex items-center gap-1.5 text-[10px] text-white/50"
+            >
               <Icon className="w-3.5 h-3.5 text-[var(--primary)]" strokeWidth={1.5} />
               {label}
             </span>
@@ -199,7 +190,9 @@ export function Footer() {
 
       <div className="border-t border-white/10">
         <div className="container-edge py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-[10px] uppercase tracking-[0.14em] text-white/40">
-          <span>© {year} {brand.name} · {brand.manufacturer} · CNPJ {brand.cnpj}</span>
+          <span>
+            © {year} {brand.name} · {brand.manufacturer} · CNPJ {brand.cnpj}
+          </span>
           <div className="flex flex-wrap gap-x-5 gap-y-1">
             <Link to="/politica-privacidade" className="hover:text-[var(--primary)]">
               Privacidade

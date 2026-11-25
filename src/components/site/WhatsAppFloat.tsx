@@ -2,7 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { brand } from "@/lib/brand";
-import { whatsappHref } from "@/lib/whatsapp";
+import { formatWhatsAppPhone, whatsappHref } from "@/lib/whatsapp";
 
 import { getSiteSettings } from "@/lib/site-settings.functions";
 
@@ -28,14 +28,16 @@ export function WhatsAppFloat() {
   });
   if (!settings?.whatsappEnabled || HIDDEN.some((r) => r.test(pathname))) return null;
 
-  const href = whatsappHref();
+  const supportPhone = settings?.whatsappPhone ?? brand.whatsapp.phoneE164;
+  const href = whatsappHref(undefined, supportPhone);
+  const supportPhoneDisplay = formatWhatsAppPhone(supportPhone);
 
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      aria-label={`Falar com o suporte no WhatsApp ${brand.whatsapp.display}`}
+      aria-label={`Falar com o suporte no WhatsApp ${supportPhoneDisplay}`}
       className="fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] transition hover:scale-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#25D366]/40"
     >
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="h-7 w-7">

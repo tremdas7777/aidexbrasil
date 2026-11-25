@@ -1,15 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import { brand } from "@/lib/brand";
 
 export const getSiteSettings = createServerFn({ method: "GET" }).handler(async () => {
   const { data } = await supabase
     .from("site_settings")
     .select("key,value")
-    .in("key", ["whatsapp_enabled", "card_enabled", "store_closed"]);
+    .in("key", ["whatsapp_enabled", "whatsapp_phone", "card_enabled", "store_closed"]);
   const map = new Map((data ?? []).map((r) => [r.key, r.value]));
   return {
     whatsappEnabled: map.get("whatsapp_enabled") === true,
+    whatsappPhone:
+      typeof map.get("whatsapp_phone") === "string"
+        ? (map.get("whatsapp_phone") as string)
+        : brand.whatsapp.phoneE164,
     // Cartão começa desligado; só aparece para os clientes depois de ativado no admin.
     cardEnabled: map.get("card_enabled") === true,
     // Loja fechada no painel: ninguém consegue gerar cobrança nova.
@@ -83,4 +88,34 @@ export const setWhatsappEnabled = createServerFn({ method: "POST" })
     });
     if (error) throw new Error(error.message);
     return { ok: true, enabled: data.enabled };
+  });
+
+export const setWhatsappPhone = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z
+      .object({
+        password: z.string().min(1).max(200),
+        phone: z
+          .string()
+          .trim()
+          .regex(/^\+?[0-9\s().-]{10,20}$/),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    if (data.password !== process.env.ADMIN_PASSWORD) {
+      throw new Error("Unauthorized");
+    }
+    const phone = data.phone.replace(/\D/g, "");
+    if (!/^[1-9]\d{9,14}$/.test(phone)) {
+      throw new Error("Informe um número válido com DDI e DDD, apenas com 10 a 15 dígitos.");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("site_settings").upsert({
+      key: "whatsapp_phone",
+      value: phone,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true, phone };
   });
