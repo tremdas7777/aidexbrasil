@@ -99,6 +99,14 @@ function pickTracking(json: unknown): { trackingCode?: string; trackingUrl?: str
  * Envia o pedido pago. Não retenta erros definitivos (401/402/403/413/415/422);
  * retenta uma vez em erro de rede e em 429/5xx.
  */
+/**
+ * Interruptor do painel: só envia quando o valor gravado é exatamente `true`.
+ * Ausente, `false`, string ou qualquer outro valor = desativado (padrão seguro).
+ */
+export function shouldSendRastro(flagValue: unknown): boolean {
+  return flagValue === true;
+}
+
 export async function sendRotasyncOrder(o: RotasyncOrder): Promise<RotasyncResult> {
   const base = (process.env["RASTREIO_API_URL"] ?? DEFAULT_API).replace(/\/+$/, "");
   const key = process.env["RASTREIO_API_KEY"];

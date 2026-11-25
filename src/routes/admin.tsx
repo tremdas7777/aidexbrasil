@@ -6,6 +6,7 @@ import { getAdminFunnel, verifyAdminPassword } from "@/lib/admin.functions";
 import {
   getSiteSettings,
   setStoreClosed,
+  setRastroEnabled,
   setWhatsappEnabled,
   setWhatsappPhone,
 } from "@/lib/site-settings.functions";
@@ -30,6 +31,7 @@ import {
   Loader2,
   Users,
   MessageCircle,
+  Truck,
 } from "lucide-react";
 
 export const Route = createFileRoute("/admin")({
@@ -197,6 +199,10 @@ function AdminPage() {
   const saveStore = useServerFn(setStoreClosed);
   const [storeClosed, setStoreClosedState] = useState<boolean | null>(null);
   const [savingStore, setSavingStore] = useState(false);
+  // Rastreio (Rotasync): desligado, nenhum pedido pago é enviado para lá.
+  const saveRastro = useServerFn(setRastroEnabled);
+  const [rastroEnabled, setRastroEnabledState] = useState<boolean | null>(null);
+  const [savingRastro, setSavingRastro] = useState(false);
 
   useEffect(() => {
     if (!authed) return;
@@ -205,6 +211,7 @@ function AdminPage() {
         setWhatsappEnabledState(s.whatsappEnabled);
         setWhatsappPhoneState(s.whatsappPhone);
         setStoreClosedState(s.storeClosed);
+        setRastroEnabledState(s.rastroEnabled);
       })
       .catch(() => {});
   }, [authed, fetchSettings]);
@@ -244,6 +251,18 @@ function AdminPage() {
       setStoreClosedState(r.closed);
     } finally {
       setSavingStore(false);
+    }
+  };
+
+  const toggleRastro = async () => {
+    if (rastroEnabled === null) return;
+    setSavingRastro(true);
+    try {
+      const next = !rastroEnabled;
+      const r = await saveRastro({ data: { password, enabled: next } });
+      setRastroEnabledState(r.enabled);
+    } finally {
+      setSavingRastro(false);
     }
   };
 
@@ -340,6 +359,31 @@ function AdminPage() {
                     onClick={toggleStore}
                   >
                     {savingStore ? "Salvando…" : storeClosed ? "Abrir loja" : "Fechar loja"}
+                  </Button>
+                </div>
+              </Card>
+              <Card className="mb-4 p-5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Truck className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <div className="font-medium">Envio de pedidos à Rotasync (rastreio)</div>
+                    <div className="text-xs text-muted-foreground">
+                      Desligado, nenhum pedido pago é enviado para a Rotasync e nenhum código de
+                      rastreio é gerado. A UTMify e o Facebook continuam recebendo as vendas pagas.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {rastroEnabled === null ? "…" : rastroEnabled ? "Ativo" : "Desativado"}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant={rastroEnabled ? "destructive" : "default"}
+                    disabled={savingRastro || rastroEnabled === null}
+                    onClick={toggleRastro}
+                  >
+                    {savingRastro ? "Salvando…" : rastroEnabled ? "Desativar" : "Ativar"}
                   </Button>
                 </div>
               </Card>

@@ -2,7 +2,11 @@
 // (UTMify + Meta CAPI) mesmo que o cliente feche a página. Somente servidor.
 import { sendUtmifyOrder, type UtmParams } from "@/lib/utmify.server";
 import { sendCapiEvent } from "@/lib/meta.server";
-import { sendRotasyncOrder, type RotasyncAddress } from "@/lib/rotasync.server";
+import {
+  sendRotasyncOrder,
+  shouldSendRastro,
+  type RotasyncAddress,
+} from "@/lib/rotasync.server";
 import { getBundle } from "@/lib/bundles";
 import { isPaidStatus } from "@/lib/pix-status";
 import { getCardTransaction, isCardOrderId, CARD_ORDER_PREFIX } from "@/lib/hypercash.server";
@@ -306,12 +310,21 @@ export async function reportPaidOnce(
         });
     // Rastreio (Rotasync): só pedidos principais com endereço completo. O upsell vai no mesmo envio do pedido original.
     // Se a API já respondeu de forma definitiva (sucesso, 422, 401, 402, 403), não reenvia.
+    // Interruptor do painel: desligado (padrão), nada é enviado à Rotasync.
+    const { data: rastroRow } = await db
+      .from("site_settings")
+      .select("value")
+      .eq("key", "rastro_enabled")
+      .maybeSingle();
+    const rastroOn = shouldSendRastro(rastroRow?.value);
     const prev = (o.report_result as { rastro?: { ok?: boolean; status?: number } } | null)?.rastro;
     const rastroDone =
       !!prev && (prev.ok || [401, 402, 403, 413, 415, 422].includes(prev.status ?? 0));
     const rastro = rastroDone
       ? prev
-      : c.upsellOf
+      : !rastroOn
+        ? { ok: false, skipped: "rastreio desativado no painel" }
+        : c.upsellOf
         ? { ok: true, skipped: "upsell enviado junto com o pedido original" }
         : !c.address
           ? { ok: false, skipped: "pedido sem endereço por partes" }

@@ -7,7 +7,13 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(async (
   const { data } = await supabase
     .from("site_settings")
     .select("key,value")
-    .in("key", ["whatsapp_enabled", "whatsapp_phone", "card_enabled", "store_closed"]);
+    .in("key", [
+      "whatsapp_enabled",
+      "whatsapp_phone",
+      "card_enabled",
+      "store_closed",
+      "rastro_enabled",
+    ]);
   const map = new Map((data ?? []).map((r) => [r.key, r.value]));
   return {
     whatsappEnabled: map.get("whatsapp_enabled") === true,
@@ -19,6 +25,8 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(async (
     cardEnabled: map.get("card_enabled") === true,
     // Loja fechada no painel: ninguém consegue gerar cobrança nova.
     storeClosed: map.get("store_closed") === true,
+    // Envio de pedidos pagos à Rotasync: desligado por padrão, só manda com o interruptor do painel ligado.
+    rastroEnabled: map.get("rastro_enabled") === true,
   };
 });
 
@@ -68,6 +76,26 @@ export const setCardEnabled = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin
       .from("site_settings")
       .upsert({ key: "card_enabled", value: data.enabled, updated_at: new Date().toISOString() });
+    if (error) throw new Error(error.message);
+    return { ok: true, enabled: data.enabled };
+  });
+
+/**
+ * Liga/desliga o envio de pedidos pagos à Rotasync (rastreio).
+ * Desligado, a loja não manda pedido nenhum para lá — nem na primeira tentativa nem em reenvio.
+ */
+export const setRastroEnabled = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z.object({ password: z.string().min(1).max(200), enabled: z.boolean() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    if (data.password !== process.env.ADMIN_PASSWORD) {
+      throw new Error("Unauthorized");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("site_settings")
+      .upsert({ key: "rastro_enabled", value: data.enabled, updated_at: new Date().toISOString() });
     if (error) throw new Error(error.message);
     return { ok: true, enabled: data.enabled };
   });
