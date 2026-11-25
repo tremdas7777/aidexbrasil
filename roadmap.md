@@ -14,3 +14,5 @@
 - [ ] 10. Verificar build OK + testes passando
 
 - [x] Adicionar gateway Pix Wappi (docs app.wappibrasil.com.br/docs)
+
+- [x] Desligar o envio à Rotasync: interruptor "Envio de pedidos à Rotasync (rastreio)" no /admin, padrão desligado, guard em reportPaidOnce e teste src/lib/rastro-switch.test.ts
