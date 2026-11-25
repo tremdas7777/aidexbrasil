@@ -81,6 +81,7 @@ export async function sendRastroOrder(o: RastroOrder): Promise<RastroResult> {
       res = await fetch(`${API}/orders`, {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${key}`,
           "X-API-Key": key,
           "Content-Type": "application/json",
           Accept: "application/json",

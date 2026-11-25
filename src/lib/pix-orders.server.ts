@@ -2,11 +2,8 @@
 // (UTMify + Meta CAPI) mesmo que o cliente feche a página. Somente servidor.
 import { sendUtmifyOrder, type UtmParams } from "@/lib/utmify.server";
 import { sendCapiEvent } from "@/lib/meta.server";
-import {
-  sendRotasyncOrder,
-  shouldSendRastro,
-  type RotasyncAddress,
-} from "@/lib/rotasync.server";
+import { shouldSendRastro, type RotasyncAddress } from "@/lib/rotasync.server";
+import { sendRastroOrder } from "@/lib/rastrocode.server";
 import { getBundle } from "@/lib/bundles";
 import { isPaidStatus } from "@/lib/pix-status";
 import { getCardTransaction, isCardOrderId, CARD_ORDER_PREFIX } from "@/lib/hypercash.server";
@@ -308,7 +305,7 @@ export async function reportPaidOnce(
             order_id: id,
           },
         });
-    // Rastreio (Rotasync): só pedidos principais com endereço completo. O upsell vai no mesmo envio do pedido original.
+    // Rastreio (RastroCode): só pedidos principais com endereço completo. O upsell vai no mesmo envio do pedido original.
     // Se a API já respondeu de forma definitiva (sucesso, 422, 401, 402, 403), não reenvia.
     // Interruptor do painel: desligado (padrão), nada é enviado à Rotasync.
     const { data: rastroRow } = await db
@@ -328,7 +325,7 @@ export async function reportPaidOnce(
         ? { ok: true, skipped: "upsell enviado junto com o pedido original" }
         : !c.address
           ? { ok: false, skipped: "pedido sem endereço por partes" }
-          : await sendRotasyncOrder({
+          : await sendRastroOrder({
               transactionId: id,
               customer: { name: c.name, email: c.email, phone: c.phone, document: c.cpf },
               address: c.address,
