@@ -39,10 +39,11 @@ export type StoredCustomer = {
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   // Tabela nova ainda não presente nos tipos gerados.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pix_orders ainda não está nos tipos Supabase gerados
   return supabaseAdmin as unknown as { from: (t: string) => any };
 }
 
-export async function saveOrder(o: {
+export type SaveOrderInput = {
   id: string;
   amountCents: number;
   customer: StoredCustomer;
@@ -55,23 +56,30 @@ export async function saveOrder(o: {
   fbc?: string | null;
   /** Momento da criação (ms). O mesmo valor vai para a UTMify no "pendente" e no "pago". */
   createdAt?: number;
-}): Promise<void> {
+};
+
+/** Persiste o pedido ou falha; obrigatório antes de devolver um desafio 3DS pendente. */
+export async function saveOrderStrict(o: SaveOrderInput): Promise<void> {
+  const db = await admin();
+  const { error } = await db.from("pix_orders").upsert({
+    id: o.id,
+    ...(o.createdAt ? { created_at: new Date(o.createdAt).toISOString() } : {}),
+    amount_cents: o.amountCents,
+    customer: o.customer,
+    bundle_id: o.bundleId,
+    bundle_name: o.bundleName,
+    utm: o.utm ?? {},
+    ip: o.ip ?? null,
+    ua: o.ua ?? null,
+    fbp: o.fbp ?? null,
+    fbc: o.fbc ?? null,
+  });
+  if (error) throw new Error(`Não foi possível guardar o pedido: ${error.message}`);
+}
+
+export async function saveOrder(o: SaveOrderInput): Promise<void> {
   try {
-    const db = await admin();
-    const { error } = await db.from("pix_orders").upsert({
-      id: o.id,
-      ...(o.createdAt ? { created_at: new Date(o.createdAt).toISOString() } : {}),
-      amount_cents: o.amountCents,
-      customer: o.customer,
-      bundle_id: o.bundleId,
-      bundle_name: o.bundleName,
-      utm: o.utm ?? {},
-      ip: o.ip ?? null,
-      ua: o.ua ?? null,
-      fbp: o.fbp ?? null,
-      fbc: o.fbc ?? null,
-    });
-    if (error) console.error("saveOrder error", error.message);
+    await saveOrderStrict(o);
   } catch (e) {
     console.error("saveOrder failed", e);
   }

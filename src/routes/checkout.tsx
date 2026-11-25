@@ -211,7 +211,10 @@ function Page() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Carrega o SDK assim que o cliente escolhe cartão.
   useEffect(() => {
-    if (pay === "card" && cardKey && legacyApi) void import("@/lib/legacy-sdk").then(({ loadLegacyPay }) => loadLegacyPay(cardKey, legacyApi)).catch(() => undefined);
+    if (pay === "card" && cardKey && legacyApi)
+      void import("@/lib/legacy-sdk")
+        .then(({ loadLegacyPay }) => loadLegacyPay(cardKey, legacyApi))
+        .catch(() => undefined);
   }, [pay, cardKey, legacyApi]);
   useEffect(() => {
     if (!cardEnabled && pay === "card") setPay("pix");
@@ -351,27 +354,70 @@ function Page() {
   const cardMutation = useMutation({
     mutationFn: async () => {
       const address = structuredAddress();
-      if (!cardKey || !legacyApi || !address) throw new Error("Cartão indisponível no momento. Tente o Pix.");
+      if (!cardKey || !legacyApi || !address)
+        throw new Error("Cartão indisponível no momento. Tente o Pix.");
       const [mm, yy] = card.exp.split("/");
       if (!mm || !yy) throw new Error("Confira a validade do cartão.");
       const { loadLegacyPay } = await import("@/lib/legacy-sdk");
       const client = await loadLegacyPay(cardKey, legacyApi);
-      const prepared = await client.prepareCardPayment({ amount: cardT.total, installments,
-        referenceId: crypto.randomUUID(),
-        card: { number: digits(card.number), holderName: card.name.trim().toUpperCase(), expirationMonth: mm, expirationYear: `20${yy}`, cvv: digits(card.cvv) },
-        customer: { name: id.name, email: id.email, document: digits(id.cpf), phone: digits(id.phone) },
-      }).catch(() => { throw new Error("Não foi possível validar o cartão. Confira os dados e tente novamente."); });
-      const res = await cardFn({ data: { ...orderPayload(), cardPrepared: prepared.payinCard,
-        cardMeta: { ...(prepared.card?.last4 ? { last4: prepared.card.last4 } : {}), ...(prepared.card?.brand ? { brand: prepared.card.brand } : {}), ...(prepared.card?.token ? { token: prepared.card.token } : {}) },
-        antifraudSessionId: prepared.antifraud?.sessionId ?? null, preparedAmount: cardT.total, installments,
-      } });
+      const referenceId = crypto.randomUUID();
+      const prepared = await client
+        .prepareCardPayment({
+          amount: cardT.total,
+          installments,
+          referenceId,
+          card: {
+            number: digits(card.number),
+            holderName: card.name.trim().toUpperCase(),
+            expirationMonth: mm,
+            expirationYear: `20${yy}`,
+            cvv: digits(card.cvv),
+          },
+          customer: {
+            name: id.name,
+            email: id.email,
+            document: digits(id.cpf),
+            phone: digits(id.phone),
+          },
+        })
+        .catch(() => {
+          throw new Error("Não foi possível validar o cartão. Confira os dados e tente novamente.");
+        });
+      const res = await cardFn({
+        data: {
+          ...orderPayload(),
+          cardPrepared: prepared.payinCard,
+          cardMeta: {
+            ...(prepared.card?.last4 ? { last4: prepared.card.last4 } : {}),
+            ...(prepared.card?.brand ? { brand: prepared.card.brand } : {}),
+            ...(prepared.card?.token ? { token: prepared.card.token } : {}),
+          },
+          antifraudSessionId: prepared.antifraud?.sessionId ?? null,
+          preparedAmount: cardT.total,
+          installments,
+          referenceId,
+        },
+      });
       // Guarda a sessão antes do 3DS para permitir acompanhar o pedido se a autenticação falhar.
-      savePixSession({ ...sessionBase(), id: res.id, qrcode: "", amount: res.amount, discount: 0, method: "card", installments, ...(res.cardToken ? { cardToken: res.cardToken } : {}) });
+      savePixSession({
+        ...sessionBase(),
+        id: res.id,
+        qrcode: "",
+        amount: res.amount,
+        discount: 0,
+        method: "card",
+        installments,
+        ...(res.cardToken ? { cardToken: res.cardToken } : {}),
+      });
       if (res.threeDSecurePending && res.threeDSecure) {
         setThreeDS(true);
-        try { await client.handlePendingThreeDS(res.threeDSecure); }
-        catch (e) { throw new Error(threeDSErrorMessage(e)); }
-        finally { setThreeDS(false); }
+        try {
+          await client.handlePendingThreeDS(res.threeDSecure);
+        } catch (e) {
+          throw new Error(threeDSErrorMessage(e));
+        } finally {
+          setThreeDS(false);
+        }
       }
       return res;
     },
@@ -467,7 +513,10 @@ function Page() {
       </Card>
     ) : (
       <Card done>
-        <CardHead title="Identificação" onEdit={cardMutation.isPending ? undefined : () => setStep(1)} />
+        <CardHead
+          title="Identificação"
+          onEdit={cardMutation.isPending ? undefined : () => setStep(1)}
+        />
         <p className="mt-3 text-[13px] font-semibold">{id.name}</p>
         <p className="mt-1 text-[13px]">{id.email}</p>
         <p className="mt-1 text-[13px]">{id.phone}</p>
@@ -564,7 +613,10 @@ function Page() {
       </Card>
     ) : step === 3 ? (
       <Card done>
-        <CardHead title="Enviar para" onEdit={cardMutation.isPending ? undefined : () => setStep(2)} />
+        <CardHead
+          title="Enviar para"
+          onEdit={cardMutation.isPending ? undefined : () => setStep(2)}
+        />
         <p className="mt-3 text-[13px]">
           {addr.rua}, {addr.numero}
           {addr.complemento && ` - ${addr.complemento}`}
@@ -616,7 +668,9 @@ function Page() {
               bump={b}
               reveal={i > 0}
               checked={bumps.includes(b.id)}
-              onChange={(on) => { if (!cardMutation.isPending) toggleBump(b.id, on); }}
+              onChange={(on) => {
+                if (!cardMutation.isPending) toggleBump(b.id, on);
+              }}
             />
           ))}
           <div

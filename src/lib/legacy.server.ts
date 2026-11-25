@@ -9,6 +9,7 @@ import {
   normalizeLegacyStatus,
   parseLegacyKey,
   payerDataError,
+  type LegacyJsonObject,
 } from "@/lib/legacy";
 
 export const LEGACY_API = "https://api.legacyecom.com.br";
@@ -26,7 +27,9 @@ async function db() {
 
 /** Chave salva no /admin (se houver). */
 async function savedKey(): Promise<string | null> {
-  const { data } = await (await db())
+  const { data } = await (
+    await db()
+  )
     .from("private_settings")
     .select("value")
     .eq("key", KEY)
@@ -55,7 +58,9 @@ export async function getLegacyKeySource(): Promise<{
 
 export async function saveLegacyKey(value: string): Promise<void> {
   const parsed = legacyKeySchema.parse(value);
-  const { error } = await (await db())
+  const { error } = await (
+    await db()
+  )
     .from("private_settings")
     .upsert({ key: KEY, value: parsed, updated_at: new Date().toISOString() });
   if (error) throw new Error(error.message);
@@ -110,18 +115,19 @@ async function legacyPost(path: string, body: unknown, retry = true): Promise<Le
 function throwLegacyError(res: Response, json: LegacyReply["json"]): never {
   const code = String(json?.code ?? json?.error?.code ?? "");
   const field =
-    JSON.stringify(json?.fields ?? json?.field ?? json?.error?.field ?? json?.details?.field ?? json?.message ?? "") || null;
+    JSON.stringify(
+      json?.fields ??
+        json?.field ??
+        json?.error?.field ??
+        json?.details?.field ??
+        json?.message ??
+        "",
+    ) || null;
   const payer = payerDataError(code, field);
   if (payer) throw payer;
   // Log só com status HTTP e código/mensagem do gateway — nunca dado do cliente ou do cartão.
-  console.error(
-    "Legacy error",
-    res.status,
-    code,
-  );
-  throw new Error(
-    "Não foi possível processar o pagamento. Confira os dados e tente novamente.",
-  );
+  console.error("Legacy error", res.status, code);
+  throw new Error("Não foi possível processar o pagamento. Confira os dados e tente novamente.");
 }
 
 export type LegacyCustomer = { name: string; email: string; phone: string; cpf: string };
@@ -160,7 +166,7 @@ export type LegacyTx = {
   amount: number;
   qrcode?: string;
   threeDSecurePending?: boolean;
-  threeDSecure?: unknown;
+  threeDSecure?: LegacyJsonObject | null;
   card?: { last4?: string; brand?: string } | null;
   refusedReason?: string | null;
 };
@@ -213,6 +219,7 @@ export async function createLegacyPix(o: {
 export async function createLegacyCard(o: {
   amount: number;
   cardPrepared: Record<string, unknown>;
+  referenceId: string;
   antifraudSessionId?: string | undefined;
   installments: number;
   customer: LegacyCustomer;
@@ -225,20 +232,24 @@ export async function createLegacyCard(o: {
   parentId?: string | undefined;
 }): Promise<LegacyTx> {
   if (!o.ip) throw new Error("Pagamento indisponível no momento.");
-  const { res, json } = await legacyPost("/payin", {
-    paymentMethod: "CREDIT_CARD",
-    amount: o.amount,
-    referenceId: crypto.randomUUID(),
-    isPhysicalProduct: true,
-    payerIp: o.ip,
-    webhookUrl: o.webhookUrl,
-    card: o.cardPrepared,
-    ...(o.antifraudSessionId ? { antifraud: { sessionId: o.antifraudSessionId } } : {}),
-    ...(o.parentId ? { parentId: o.parentId } : {}),
-    installments: o.installments,
-    customer: legacyCustomer(o.customer, o.address),
-    items: [{ title: o.description.slice(0, 200), unitPrice: o.amount, quantity: 1 }],
-  }, false);
+  const { res, json } = await legacyPost(
+    "/payin",
+    {
+      paymentMethod: "CREDIT_CARD",
+      amount: o.amount,
+      referenceId: o.referenceId,
+      isPhysicalProduct: true,
+      payerIp: o.ip,
+      webhookUrl: o.webhookUrl,
+      card: o.cardPrepared,
+      ...(o.antifraudSessionId ? { antifraud: { sessionId: o.antifraudSessionId } } : {}),
+      ...(o.parentId ? { parentId: o.parentId } : {}),
+      installments: o.installments,
+      customer: legacyCustomer(o.customer, o.address),
+      items: [{ title: o.description.slice(0, 200), unitPrice: o.amount, quantity: 1 }],
+    },
+    false,
+  );
   const tx = txOf(json);
   if (!res.ok || !tx?.id) throwLegacyError(res, json);
   // Log só com id e status — nunca dado do cartão.
@@ -248,7 +259,7 @@ export async function createLegacyCard(o: {
     status: normalizeLegacyStatus(tx?.status),
     amount: Math.round(Number(tx?.amount ?? o.amount)),
     threeDSecurePending: tx?.threeDSecurePending === true,
-    threeDSecure: json,
+    threeDSecure: json as LegacyJsonObject,
     card: tx?.card ? { last4: tx.card.last4, brand: tx.card.brand } : null,
     refusedReason:
       typeof tx?.refusedReason === "string"
