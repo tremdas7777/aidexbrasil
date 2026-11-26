@@ -6,6 +6,7 @@
 // navegador pelo SDK LegacyPay e o servidor só recebe o payinCard preparado.
 import {
   legacyKeySchema,
+  legacyPayinCardSchema,
   normalizeLegacyStatus,
   parseLegacyKey,
   payerDataError,
@@ -27,9 +28,7 @@ async function db() {
 
 /** Chave salva no /admin (se houver). */
 async function savedKey(): Promise<string | null> {
-  const { data } = await (
-    await db()
-  )
+  const { data } = await (await db())
     .from("private_settings")
     .select("value")
     .eq("key", KEY)
@@ -58,9 +57,7 @@ export async function getLegacyKeySource(): Promise<{
 
 export async function saveLegacyKey(value: string): Promise<void> {
   const parsed = legacyKeySchema.parse(value);
-  const { error } = await (
-    await db()
-  )
+  const { error } = await (await db())
     .from("private_settings")
     .upsert({ key: KEY, value: parsed, updated_at: new Date().toISOString() });
   if (error) throw new Error(error.message);
@@ -232,6 +229,9 @@ export async function createLegacyCard(o: {
   parentId?: string | undefined;
 }): Promise<LegacyTx> {
   if (!o.ip) throw new Error("Pagamento indisponível no momento.");
+  if (o.installments !== 1)
+    throw new Error("O pagamento no cartão está disponível somente em 1x à vista.");
+  const cardPrepared = legacyPayinCardSchema.parse(o.cardPrepared);
   const { res, json } = await legacyPost(
     "/payin",
     {
@@ -241,7 +241,7 @@ export async function createLegacyCard(o: {
       isPhysicalProduct: true,
       payerIp: o.ip,
       webhookUrl: o.webhookUrl,
-      card: o.cardPrepared,
+      card: cardPrepared,
       ...(o.antifraudSessionId ? { antifraud: { sessionId: o.antifraudSessionId } } : {}),
       ...(o.parentId ? { parentId: o.parentId } : {}),
       installments: o.installments,

@@ -13,3 +13,13 @@ export const isPaidStatus = (status: string | null | undefined) =>
       .trim()
       .toLowerCase(),
   );
+
+const FAILED_STATUSES = new Set(["failed", "refused", "error", "canceled", "cancelled"]);
+
+/** Tentativas negativas ficam separadas de pendentes e não podem ser aprovadas manualmente. */
+export const isFailedPaymentStatus = (status: string | null | undefined) =>
+  FAILED_STATUSES.has(
+    String(status ?? "")
+      .trim()
+      .toLowerCase(),
+  );

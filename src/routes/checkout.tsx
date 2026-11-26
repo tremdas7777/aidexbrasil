@@ -12,10 +12,11 @@ import {
   createPixCharge,
   FRETES,
   getCardConfig,
+  getPixStatus,
   getFrete,
   type FreteId,
 } from "@/lib/pix.functions";
-import { CARD_MAX_INSTALLMENTS, checkoutTotals, PIX_DISCOUNT } from "@/lib/payment-pricing";
+import { checkoutTotals, PIX_DISCOUNT } from "@/lib/payment-pricing";
 import { threeDSErrorMessage } from "@/lib/legacy-sdk";
 import { savePixSession } from "@/lib/pix-session";
 import { getSessionId, getStoredUtms } from "@/lib/tracking";
@@ -148,10 +149,10 @@ function Page() {
   const [bumps, setBumps] = useState<BumpId[]>([]);
   const toggleBump = (id: BumpId, on: boolean) =>
     setBumps((cur) => (on ? [...cur.filter((b) => b !== id), id] : cur.filter((b) => b !== id)));
-  // Pix vem pré-selecionado (10% de desconto); cartão em até 12x pelo preço de tabela.
+  // Pix vem pré-selecionado (10% de desconto); cartão somente em 1x à vista pelo preço de tabela.
   const [pay, setPay] = useState<"pix" | "card">("pix");
   const [card, setCard] = useState({ number: "", name: "", exp: "", cvv: "" });
-  const [installments, setInstallments] = useState(1);
+  const installments = 1;
   // Frete grátis só a partir de FREE_SHIPPING_MIN em produtos (validado também no servidor).
   const subtotal = bundle.price + bumpsTotal(bumps);
   const freeEligible = isFreeShippingEligible(subtotal);
@@ -168,6 +169,7 @@ function Page() {
   const createFn = useServerFn(createPixCharge);
   const cardFn = useServerFn(createCardCharge);
   const cardConfigFn = useServerFn(getCardConfig);
+  const cardStatusFn = useServerFn(getPixStatus);
   const stepFn = useServerFn(trackCheckoutStep);
   const storeStatusFn = useServerFn(getStoreStatus);
   // Loja fechada no painel → o checkout mostra aviso em vez do formulário.
@@ -414,6 +416,9 @@ function Page() {
         try {
           await client.handlePendingThreeDS(res.threeDSecure);
         } catch (e) {
+          // Confirma no gateway: uma recusa vira "recusado" no painel; um pagamento aprovado segue.
+          const latest = await cardStatusFn({ data: { id: res.id } }).catch(() => null);
+          if (latest?.paid) return res;
           throw new Error(threeDSErrorMessage(e));
         } finally {
           setThreeDS(false);
@@ -783,22 +788,10 @@ function Page() {
                       }
                     />
                   </div>
-                  <label className="block">
-                    <span className="mb-2 block text-[13px] font-medium">Parcelas</span>
-                    <select
-                      value={installments}
-                      onChange={(e) => setInstallments(Number(e.target.value))}
-                      className="ck-surface h-[46px] w-full rounded-lg border border-border px-3 text-base outline-none focus-visible:border-foreground md:text-[13px]"
-                    >
-                      {Array.from({ length: CARD_MAX_INSTALLMENTS }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          {n === 1
-                            ? `1x de ${brl(cardTotal)} à vista`
-                            : `${n}x de ${brl(cardTotal / n)} sem juros`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="flex items-center justify-between rounded-lg border border-border px-3 py-3 text-[13px]">
+                    <span className="font-medium">1x à vista</span>
+                    <span className="font-semibold">{brl(cardTotal)}</span>
+                  </div>
                   {pixDiscountOn && (
                     <p className="rounded-md bg-[var(--ck-badge)]/50 px-3 py-2 text-[12px] text-muted-foreground">
                       No Pix sai por <b className="text-[var(--ck-ok)]">{brl(pixTotal)}</b> (

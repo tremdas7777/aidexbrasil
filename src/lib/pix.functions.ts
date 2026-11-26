@@ -7,6 +7,7 @@ import {
   saveOrderStrict,
   fetchGatewayStatus,
   reportPaidOnce,
+  syncOrderStatus,
   getOrder,
   findUpsellOf,
 } from "@/lib/pix-orders.server";
@@ -24,6 +25,8 @@ import {
   isLegacyOrderId,
   legacyPayinCardSchema,
   legacyRefused,
+  legacyCardErrorMessage,
+  legacyCardRefusalMessage,
   assertLegacyPreparedAmount,
   type LegacyJsonObject,
 } from "./legacy";
@@ -255,7 +258,7 @@ const cardSchema = customerSchema.extend({
   antifraudSessionId: z.string().min(1).max(300).nullable().optional(),
   referenceId: z.string().uuid(),
   preparedAmount: z.number().int().positive(),
-  installments: z.number().int().min(1).max(CARD_MAX_INSTALLMENTS),
+  installments: z.literal(CARD_MAX_INSTALLMENTS),
 });
 
 /** Cartão Legacy: preço calculado no servidor, objeto do SDK intacto e sem retry. */
@@ -286,21 +289,7 @@ export const createCardCharge = createServerFn({ method: "POST" })
       data.installments,
     );
     const { ip, ua } = requestMeta();
-    const tx = await createLegacyCard({
-      amount: totals.total,
-      cardPrepared: data.cardPrepared,
-      referenceId: data.referenceId,
-      ...(data.antifraudSessionId ? { antifraudSessionId: data.antifraudSessionId } : {}),
-      installments: data.installments,
-      customer: { name: data.name, email: data.email, phone: data.phone, cpf: data.cpf },
-      address: data.address,
-      description: await getGatewayProductName(),
-      webhookUrl: "https://aidexbrasil.com/api/public/pix-webhook?gw=le",
-      ip,
-    });
-    const id = `${LEGACY_ORDER_PREFIX}${tx.id}`;
-    // Salva antes de devolver o desafio 3DS. Nenhum token nem dado de cartão fica no banco.
-    await saveOrderStrict({
+    const orderData = (id: string) => ({
       createdAt: Date.now(),
       id,
       amountCents: totals.total,
@@ -310,11 +299,11 @@ export const createCardCharge = createServerFn({ method: "POST" })
         phone: data.phone,
         cpf: data.cpf,
         ...(data.endereco ? { endereco: data.endereco.replace(/\s+/g, " ").trim() } : {}),
-        address: data.address,
+        address: data.address!,
         frete: { id: freteOpt.id, name: freteOpt.name, price: freteOpt.price },
         bumps: storedBumps(data),
-        method: "card",
-        installments: data.installments,
+        method: "card" as const,
+        installments: 1,
         ...(data.cardMeta
           ? {
               card: {
@@ -330,15 +319,58 @@ export const createCardCharge = createServerFn({ method: "POST" })
       ip,
       ua,
     });
-    if (legacyRefused(tx.status, tx.threeDSecurePending))
-      throw new Error("Pagamento recusado. Confira os dados do cartão ou pague com Pix.");
+    let tx: Awaited<ReturnType<typeof createLegacyCard>>;
+    try {
+      tx = await createLegacyCard({
+        amount: totals.total,
+        cardPrepared: data.cardPrepared,
+        referenceId: data.referenceId,
+        ...(data.antifraudSessionId ? { antifraudSessionId: data.antifraudSessionId } : {}),
+        installments: 1,
+        customer: { name: data.name, email: data.email, phone: data.phone, cpf: data.cpf },
+        address: data.address,
+        description: await getGatewayProductName(),
+        webhookUrl: "https://aidexbrasil.com/api/public/pix-webhook?gw=le",
+        ip,
+      });
+    } catch (error) {
+      const message = legacyCardErrorMessage(error);
+      // O gateway não devolveu uma transação: guarda uma tentativa local, nunca uma venda.
+      await saveOrder({
+        ...orderData(`ca_${data.referenceId}`),
+        status: "failed",
+        reportResult: {
+          cardAttempt: { outcome: "error", message, at: new Date().toISOString() },
+        },
+      });
+      throw new Error(message);
+    }
+    const id = `${LEGACY_ORDER_PREFIX}${tx.id}`;
+    const pending = tx.threeDSecurePending === true;
+    const refused = legacyRefused(tx.status, pending);
+    const paid = !pending && isPaidStatus(tx.status);
+    const message = refused ? legacyCardRefusalMessage(tx.refusedReason) : null;
+    // Salva antes de devolver o desafio 3DS. Nenhum token nem dado de cartão fica no banco.
+    await saveOrderStrict({
+      ...orderData(id),
+      status: pending ? "pending" : tx.status,
+      reportResult: {
+        cardAttempt: {
+          outcome: refused ? "refused" : paid ? "approved" : "pending",
+          ...(message ? { message } : {}),
+          at: new Date().toISOString(),
+        },
+      },
+    });
+    if (paid) await reportPaidOnce(id, tx.amount);
+    if (refused) throw new Error(message ?? legacyCardRefusalMessage(null));
     return {
       id,
       amount: totals.total,
       status: tx.status,
-      paid: !tx.threeDSecurePending && isPaidStatus(tx.status),
-      threeDSecurePending: tx.threeDSecurePending === true,
-      threeDSecure: tx.threeDSecurePending ? tx.threeDSecure : null,
+      paid,
+      threeDSecurePending: pending,
+      threeDSecure: pending ? tx.threeDSecure : null,
       ...(data.cardMeta?.token ? { cardToken: data.cardMeta.token } : {}),
     };
   });
@@ -407,69 +439,18 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
     const sel = upsellSelection(bundle, data.products);
     if (!sel.products.length) throw new Error("Escolha uma oferta.");
     const amount = Math.round(sel.total * 100);
-    // Com o kit, parcela como a compra; seguro e/ou expresso, à vista.
-    const installments = sel.products.includes("kit") ? (parent.customer.installments ?? 1) : 1;
+    // Cartão somente à vista, inclusive nas ofertas após a compra.
+    const installments = 1;
     const c = parent.customer;
     const a = c.address;
     if (!a) throw new Error("Pedido sem endereço.");
     const gatewayName = await getGatewayProductName();
     const { ip, ua } = requestMeta();
     const legacy = isLegacyOrderId(parent.id);
-    const tx = await (async () => {
-      if (legacy) {
-        if (!data.cardPrepared || data.preparedAmount == null || !data.referenceId)
-          throw new Error("Cartão indisponível. Pague com Pix.");
-        assertLegacyPreparedAmount(
-          data.preparedAmount,
-          amount,
-          data.cardPrepared.installments,
-          installments,
-        );
-        const result = await createLegacyCard({
-          amount,
-          cardPrepared: data.cardPrepared,
-          referenceId: data.referenceId,
-          ...(data.antifraudSessionId ? { antifraudSessionId: data.antifraudSessionId } : {}),
-          installments,
-          customer: { name: c.name, email: c.email, phone: c.phone, cpf: c.cpf },
-          address: a,
-          description: gatewayName,
-          webhookUrl: "https://aidexbrasil.com/api/public/pix-webhook?gw=le",
-          ip,
-        });
-        return { ...result, card: null };
-      }
-      if (!data.cardHash) throw new Error("Token indisponível. Pague com Pix.");
-      return createCardTransaction({
-        amount,
-        cardHash: data.cardHash,
-        installments,
-        customer: { name: c.name, email: c.email, phone: c.phone, cpf: c.cpf },
-        address: {
-          street: a.street,
-          streetNumber: a.number,
-          complement: a.complement || "Sem complemento",
-          zipCode: a.zipcode,
-          neighborhood: a.neighborhood,
-          city: a.city,
-          state: a.state.toUpperCase(),
-          country: "BR",
-        },
-        shippingFee: 0,
-        items: sel.items.map((i) => ({
-          title: gatewayName,
-          unitPrice: Math.round(i.price * 100),
-          quantity: 1,
-        })),
-        postbackUrl: `${new URL(data.origin).origin}/api/public/pix-webhook?gw=hc`,
-        ip,
-      });
-    })();
-    const needsAuthentication =
-      legacy && "threeDSecurePending" in tx && tx.threeDSecurePending === true;
-    const refused = legacyRefused(tx.status, needsAuthentication);
-    const id = `${legacy ? LEGACY_ORDER_PREFIX : CARD_ORDER_PREFIX}${tx.id}`;
-    const orderData = {
+    const orderData = (
+      id: string,
+      card: { brand?: string; lastDigits?: string } | null = null,
+    ) => ({
       createdAt: Date.now(),
       id,
       amountCents: amount,
@@ -482,8 +463,8 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
         address: c.address,
         frete: { id: "junto", name: `Junto com o pedido ${parent.id}`, price: 0 },
         method: "card" as const,
-        installments,
-        ...(tx.card ? { card: tx.card } : {}),
+        installments: 1,
+        ...(card ? { card } : {}),
         upsellOf: parent.id,
         upsellItems: sel.products,
       },
@@ -494,18 +475,113 @@ export const createCardFollowUpCharge = createServerFn({ method: "POST" })
       ua,
       fbp: parent.fbp,
       fbc: parent.fbc,
-    };
+    });
+    let tx;
+    try {
+      tx = await (async () => {
+        if (legacy) {
+          if (!data.cardPrepared || data.preparedAmount == null || !data.referenceId)
+            throw new Error("Cartão indisponível. Pague com Pix.");
+          assertLegacyPreparedAmount(
+            data.preparedAmount,
+            amount,
+            data.cardPrepared.installments,
+            installments,
+          );
+          const result = await createLegacyCard({
+            amount,
+            cardPrepared: data.cardPrepared,
+            referenceId: data.referenceId,
+            ...(data.antifraudSessionId ? { antifraudSessionId: data.antifraudSessionId } : {}),
+            installments,
+            customer: { name: c.name, email: c.email, phone: c.phone, cpf: c.cpf },
+            address: a,
+            description: gatewayName,
+            webhookUrl: "https://aidexbrasil.com/api/public/pix-webhook?gw=le",
+            ip,
+            parentId: parent.id.slice(LEGACY_ORDER_PREFIX.length),
+          });
+          return { ...result, card: null };
+        }
+        if (!data.cardHash) throw new Error("Token indisponível. Pague com Pix.");
+        return createCardTransaction({
+          amount,
+          cardHash: data.cardHash,
+          installments,
+          customer: { name: c.name, email: c.email, phone: c.phone, cpf: c.cpf },
+          address: {
+            street: a.street,
+            streetNumber: a.number,
+            complement: a.complement || "Sem complemento",
+            zipCode: a.zipcode,
+            neighborhood: a.neighborhood,
+            city: a.city,
+            state: a.state.toUpperCase(),
+            country: "BR",
+          },
+          shippingFee: 0,
+          items: sel.items.map((i) => ({
+            title: gatewayName,
+            unitPrice: Math.round(i.price * 100),
+            quantity: 1,
+          })),
+          postbackUrl: `${new URL(data.origin).origin}/api/public/pix-webhook?gw=hc`,
+          ip,
+        });
+      })();
+    } catch (error) {
+      const message = legacy
+        ? legacyCardErrorMessage(error)
+        : "Não foi possível cobrar neste cartão. Pague essa oferta com Pix.";
+      await saveOrder({
+        ...orderData(`ca_${data.referenceId ?? crypto.randomUUID()}`),
+        status: "failed",
+        reportResult: {
+          cardAttempt: { outcome: "error", message, at: new Date().toISOString() },
+        },
+      });
+      throw new Error(message);
+    }
+    const needsAuthentication =
+      legacy && "threeDSecurePending" in tx && tx.threeDSecurePending === true;
+    const refused = legacyRefused(tx.status, needsAuthentication);
+    const id = `${legacy ? LEGACY_ORDER_PREFIX : CARD_ORDER_PREFIX}${tx.id}`;
     if (needsAuthentication) {
-      await saveOrderStrict(orderData);
+      await saveOrderStrict({
+        ...orderData(id, tx.card),
+        status: "pending",
+        reportResult: {
+          cardAttempt: { outcome: "pending", at: new Date().toISOString() },
+        },
+      });
       throw new Error("Este cartão exige nova autenticação. Pague essa oferta com Pix.");
     }
-    if (refused)
-      throw new Error(
-        `O banco não aprovou a cobrança neste cartão: ${tx.refusedReason ?? "motivo não informado"}.`,
-      );
-    await saveOrder(orderData);
+    if (refused) {
+      const message = legacy
+        ? legacyCardRefusalMessage(tx.refusedReason)
+        : "O banco não aprovou a cobrança neste cartão. Pague essa oferta com Pix.";
+      await saveOrder({
+        ...orderData(id, tx.card),
+        status: tx.status,
+        reportResult: {
+          cardAttempt: { outcome: "refused", message, at: new Date().toISOString() },
+        },
+      });
+      throw new Error(message);
+    }
     const paid = isPaidStatus(tx.status);
-    return { id, amount, status: tx.status, paid, refusedReason: tx.refusedReason };
+    await saveOrder({
+      ...orderData(id, tx.card),
+      status: tx.status,
+      reportResult: {
+        cardAttempt: {
+          outcome: paid ? "approved" : "pending",
+          at: new Date().toISOString(),
+        },
+      },
+    });
+    if (paid) await reportPaidOnce(id, tx.amount);
+    return { id, amount, status: tx.status, paid };
   });
 
 /**
@@ -626,6 +702,8 @@ export const getPixStatus = createServerFn({ method: "GET" })
         ip: h?.get("cf-connecting-ip") ?? h?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
         ua: h?.get("user-agent") ?? null,
       });
+    } else {
+      await syncOrderStatus(data.id, status);
     }
     return { status, paid };
   });

@@ -9,6 +9,8 @@ export async function legacyFollowUp(
   amount: number,
   installments: number,
 ) {
+  if (installments !== 1)
+    throw new Error("O pagamento no cartão está disponível somente em 1x à vista.");
   if (!session.cardToken || !session.cpf || !session.phone)
     throw new Error("Cartão indisponível. Pague essa oferta com Pix.");
   const config = await getCardConfig({ data: {} });

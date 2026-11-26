@@ -11,6 +11,7 @@ import {
   Search,
 } from "lucide-react";
 import { approveAdminOrder, getAdminOrders, type AdminOrder } from "@/lib/admin.functions";
+import { isFailedPaymentStatus } from "@/lib/pix-status";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,11 +33,13 @@ const STATUS_FILTERS = [
   { key: "all", label: "Todos" },
   { key: "paid", label: "Pagos" },
   { key: "pending", label: "Aguardando" },
+  { key: "failed", label: "Recusados/erros" },
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]["key"];
 
 // No banco, "paid" só é gravado depois da confirmação do gateway (reportPaidOnce).
 const isPaid = (o: AdminOrder) => o.status === "paid";
+const isFailed = (o: AdminOrder) => isFailedPaymentStatus(o.status);
 
 const brl = (cents: number) =>
   (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -111,7 +114,8 @@ export function OrdersTab({ password }: OrdersTabProps) {
     const qDigits = q.replace(/\D/g, "");
     return orders.filter((o) => {
       if (status === "paid" && !isPaid(o)) return false;
-      if (status === "pending" && isPaid(o)) return false;
+      if (status === "pending" && (isPaid(o) || isFailed(o))) return false;
+      if (status === "failed" && !isFailed(o)) return false;
       if (!q) return true;
       const c = o.customer ?? ({} as AdminOrder["customer"]);
       return (
@@ -129,7 +133,8 @@ export function OrdersTab({ password }: OrdersTabProps) {
     return {
       total: orders.length,
       paid: paid.length,
-      pending: orders.length - paid.length,
+      pending: orders.filter((o) => !isPaid(o) && !isFailed(o)).length,
+      failed: orders.filter(isFailed).length,
       revenue,
       ticket: paid.length ? Math.round(revenue / paid.length) : 0,
       conv: orders.length ? Math.round((paid.length / orders.length) * 100) : 0,
@@ -223,7 +228,7 @@ export function OrdersTab({ password }: OrdersTabProps) {
       </div>
 
       {/* Resumo */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Stat icon={<Receipt className="w-5 h-5" />} label="Pedidos" value={stats.total} />
         <Stat
           icon={<CheckCircle2 className="w-5 h-5" />}
@@ -232,6 +237,7 @@ export function OrdersTab({ password }: OrdersTabProps) {
           helper={`${stats.conv}% de aprovação`}
         />
         <Stat icon={<Clock className="w-5 h-5" />} label="Aguardando" value={stats.pending} />
+        <Stat icon={<Receipt className="w-5 h-5" />} label="Recusados/erros" value={stats.failed} />
         <Stat
           icon={<DollarSign className="w-5 h-5" />}
           label="Faturamento"
@@ -324,7 +330,7 @@ export function OrdersTab({ password }: OrdersTabProps) {
                     <UtmifyBadge order={o} />
                   </td>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                    {!isPaid(o) && (
+                    {!isPaid(o) && !isFailed(o) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -374,6 +380,9 @@ function OrderDialog({
   const c = o.customer ?? ({} as AdminOrder["customer"]);
   const utmEntries = Object.entries(o.utm ?? {}).filter(([, v]) => v);
   const whats = c.phone ? `https://wa.me/55${c.phone.replace(/\D/g, "")}` : null;
+  const cardAttempt = o.report_result?.["cardAttempt"] as
+    | { outcome?: string; message?: string }
+    | undefined;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -439,7 +448,7 @@ function OrderDialog({
             value={isPaid(o) ? fmtDate(o.paid_reported_at ?? o.updated_at) : null}
           />
           <Row label="Atualizado em" value={fmtDate(o.updated_at)} />
-          {!isPaid(o) && (
+          {!isPaid(o) && !isFailed(o) && (
             <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm text-amber-900">
                 Use apenas se o pagamento foi confirmado fora da integração automática.
@@ -455,6 +464,25 @@ function OrderDialog({
             </div>
           )}
         </Section>
+
+        {c.method === "card" && cardAttempt && (
+          <Section title="Tentativa no cartão">
+            <Row
+              label="Resultado"
+              value={
+                cardAttempt.outcome === "approved"
+                  ? "Aprovada"
+                  : cardAttempt.outcome === "pending"
+                    ? "Pendente"
+                    : cardAttempt.outcome === "refused"
+                      ? "Recusada"
+                      : "Erro no processamento"
+              }
+            />
+            <Row label="Mensagem" value={cardAttempt.message} />
+            <Row label="Parcelamento" value="1x à vista" />
+          </Section>
+        )}
 
         <Section title="Origem / UTM">
           {utmEntries.length === 0 && <p className="text-sm text-muted-foreground">Sem UTMs.</p>}
@@ -530,6 +558,9 @@ function Stat({
 function statusLabel(status: string) {
   if (status === "paid") return "Pago";
   if (status === "waiting_payment" || status === "pending") return "Aguardando";
+  if (status === "failed" || status === "error") return "Falha no cartão";
+  if (status === "refused") return "Recusado";
+  if (status === "canceled" || status === "cancelled") return "Cancelado";
   if (status === "expired") return "Expirado";
   if (status === "refunded") return "Reembolsado";
   return status;
@@ -537,7 +568,12 @@ function statusLabel(status: string) {
 
 function StatusBadge({ status }: { status: string }) {
   const paid = status === "paid";
-  const cls = paid ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800";
+  const failed = ["failed", "refused", "error", "canceled", "cancelled"].includes(status);
+  const cls = paid
+    ? "bg-green-100 text-green-800"
+    : failed
+      ? "bg-red-100 text-red-700"
+      : "bg-amber-100 text-amber-800";
   return (
     <span
       className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${cls}`}

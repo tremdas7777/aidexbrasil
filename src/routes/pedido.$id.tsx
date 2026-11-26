@@ -15,9 +15,15 @@ export const Route = createFileRoute("/pedido/$id")({
   head: () => ({
     meta: [
       { title: "Pedido | AiDEX" },
-      { name: "description", content: "Acompanhe a confirmação segura do pagamento do seu pedido AiDEX." },
+      {
+        name: "description",
+        content: "Acompanhe a confirmação segura do pagamento do seu pedido AiDEX.",
+      },
       { property: "og:title", content: "Pedido | AiDEX" },
-      { property: "og:description", content: "Acompanhe a confirmação segura do pagamento do seu pedido AiDEX." },
+      {
+        property: "og:description",
+        content: "Acompanhe a confirmação segura do pagamento do seu pedido AiDEX.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
@@ -71,7 +77,17 @@ function Page() {
   const status = data?.status ?? "waiting_payment";
   // "paid" vem do servidor (regra única em src/lib/pix-status.ts) — o navegador não decide.
   const paid = data?.paid === true;
-  const refused = ["failed", "refused", "canceled", "cancelled", "chargedback", "chargeback", "refunded", "med", "expired"].includes(status);
+  const refused = [
+    "failed",
+    "refused",
+    "canceled",
+    "cancelled",
+    "chargedback",
+    "chargeback",
+    "refunded",
+    "med",
+    "expired",
+  ].includes(status);
 
   // Dispara os eventos de compra uma única vez quando o pagamento cai.
   useEffect(() => {
@@ -97,7 +113,8 @@ function Page() {
     }
     // Pedido principal pago → ofertas (kit/seguro); ofertas pagas → página do envio expresso;
     // envio expresso pago (ou sem sessão) → obrigado.
-    if (session && !session.isUpsell) navigate({ to: "/upsell/$id", params: { id }, replace: true });
+    if (session && !session.isUpsell)
+      navigate({ to: "/upsell/$id", params: { id }, replace: true });
     else if (session?.isUpsell && session.parentId) {
       const express = !!session.upsellItems?.includes("expresso");
       const main = loadPixSession(session.parentId);
@@ -160,14 +177,24 @@ function WaitingPix({ session }: { session: PixSession | null }) {
           <Pill variant="waiting" />
         </div>
 
-        <img src={pixWaiting} alt="" width={220} height={220} className="mx-auto mt-4 h-[220px] w-[220px]" loading="lazy" />
+        <img
+          src={pixWaiting}
+          alt=""
+          width={220}
+          height={220}
+          className="mx-auto mt-4 h-[220px] w-[220px]"
+          loading="lazy"
+        />
 
         {session ? (
           <>
             <p className="mt-4 text-sm text-muted-foreground">
-              Total via Pix: <b className="text-[15px] text-[var(--ck-ok)]">{brl(session.amount / 100)}</b>
+              Total via Pix:{" "}
+              <b className="text-[15px] text-[var(--ck-ok)]">{brl(session.amount / 100)}</b>
             </p>
-            <div className="mt-4 break-all rounded-lg bg-muted px-4 py-3 text-left text-[12px] text-muted-foreground">{session.qrcode}</div>
+            <div className="mt-4 break-all rounded-lg bg-muted px-4 py-3 text-left text-[12px] text-muted-foreground">
+              {session.qrcode}
+            </div>
             <button
               type="button"
               onClick={copy}
@@ -180,14 +207,24 @@ function WaitingPix({ session }: { session: PixSession | null }) {
               <h2 className="text-[17px] font-bold">Como pagar o pix</h2>
               <ol className="mt-4 space-y-4">
                 {[
-                  <>Clique em <b>cópiar o código</b>, logo acima</>,
-                  <>Abra o <b>aplicativo</b> do seu banco</>,
-                  <>Selecione a opção <b>PIX</b></>,
-                  <>Toque em <b>"Pix Copia e Cola"</b></>,
+                  <>
+                    Clique em <b>cópiar o código</b>, logo acima
+                  </>,
+                  <>
+                    Abra o <b>aplicativo</b> do seu banco
+                  </>,
+                  <>
+                    Selecione a opção <b>PIX</b>
+                  </>,
+                  <>
+                    Toque em <b>"Pix Copia e Cola"</b>
+                  </>,
                   <>Insira o código copiado e finalize seu pagamento</>,
                 ].map((t, i) => (
                   <li key={i} className="flex items-center gap-3 text-[14px]">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ck-green)] text-[13px] font-semibold text-white">{i + 1}</span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ck-green)] text-[13px] font-semibold text-white">
+                      {i + 1}
+                    </span>
                     <span>{t}</span>
                   </li>
                 ))}
@@ -196,9 +233,16 @@ function WaitingPix({ session }: { session: PixSession | null }) {
           </>
         ) : (
           <div className="mt-8 rounded-lg border border-border p-6 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Sessão do Pix não encontrada neste dispositivo.</p>
-            <p className="mt-2">Estamos acompanhando seu pagamento. Assim que for confirmado, esta página se atualiza sozinha.</p>
-            <Link to="/checkout" className="mt-4 inline-block text-[var(--ck-ok)] underline">Voltar ao checkout</Link>
+            <p className="font-medium text-foreground">
+              Sessão do Pix não encontrada neste dispositivo.
+            </p>
+            <p className="mt-2">
+              Estamos acompanhando seu pagamento. Assim que for confirmado, esta página se atualiza
+              sozinha.
+            </p>
+            <Link to="/checkout" className="mt-4 inline-block text-[var(--ck-ok)] underline">
+              Voltar ao checkout
+            </Link>
           </div>
         )}
       </div>
@@ -213,15 +257,16 @@ function WaitingCard({ session }: { session: PixSession | null }) {
       <div className="mx-auto max-w-[560px] px-4 pb-20 text-center">
         <h1 className="text-[28px] font-bold tracking-tight">Processando pagamento...</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Seu cartão está sendo analisado pelo banco. Isso costuma levar poucos segundos — não feche esta página.
+          Seu cartão está sendo analisado pelo banco. Isso costuma levar poucos segundos — não feche
+          esta página.
         </p>
         <div className="flex justify-center py-10">
           <Loader2 className="h-10 w-10 animate-spin text-[var(--ck-ok)]" />
         </div>
         {session && (
           <p className="text-sm text-muted-foreground">
-            Total no cartão: <b className="text-[15px] text-foreground">{brl(session.amount / 100)}</b>
-            {session.installments && session.installments > 1 ? ` em ${session.installments}x` : ""}
+            Total no cartão:{" "}
+            <b className="text-[15px] text-foreground">{brl(session.amount / 100)}</b> — 1x à vista
           </p>
         )}
       </div>
@@ -233,9 +278,13 @@ function Refused() {
   return (
     <Shell>
       <div className="mx-auto max-w-[560px] px-4 pb-20 text-center">
-        <div className="mt-2"><Pill variant="refused" /></div>
+        <div className="mt-2">
+          <Pill variant="refused" />
+        </div>
         <h1 className="mt-6 text-[24px] font-bold">Pagamento não aprovado</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Analise todos os dados informados para o pagamento.</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Analise todos os dados informados para o pagamento.
+        </p>
         <Link
           to="/checkout"
           className="mt-6 inline-block rounded-lg bg-[var(--ck-green)] px-8 py-3.5 text-[15px] font-semibold text-white transition hover:opacity-90"

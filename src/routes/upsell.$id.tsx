@@ -20,7 +20,18 @@ import { legacyFollowUp } from "@/lib/legacy-followup";
 
 export const Route = createFileRoute("/upsell/$id")({
   head: () => ({
-    meta: [{ title: "Ofertas do pedido | AiDEX" }, { name: "description", content: "Ofertas adicionais para seu pedido AiDEX confirmado." }, { property: "og:title", content: "Ofertas do pedido | AiDEX" }, { property: "og:description", content: "Ofertas adicionais para seu pedido AiDEX confirmado." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: "Ofertas do pedido | AiDEX" },
+      { name: "description", content: "Ofertas adicionais para seu pedido AiDEX confirmado." },
+      { property: "og:title", content: "Ofertas do pedido | AiDEX" },
+      {
+        property: "og:description",
+        content: "Ofertas adicionais para seu pedido AiDEX confirmado.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: Page,
 });
@@ -62,7 +73,7 @@ function Page() {
       if (isCard) {
         if (!session) throw new Error("Sessão não encontrada.");
         if (session.id.startsWith("le_")) {
-          const r = await legacyFollowUp(session, sel.products, Math.round(sel.total * 100), withKit ? (session.installments ?? 1) : 1);
+          const r = await legacyFollowUp(session, sel.products, Math.round(sel.total * 100), 1);
           return { ...r, qrcode: "", method: "card" as const };
         }
         if (!session.cardHash) throw new Error("Cartão indisponível. Pague com Pix.");
@@ -85,7 +96,7 @@ function Page() {
       if (!session) return;
       savePixSession({
         method: c.method,
-        installments: c.method === "card" ? session.installments : undefined,
+        installments: c.method === "card" ? 1 : undefined,
         id: c.id,
         qrcode: c.qrcode,
         amount: c.amount,

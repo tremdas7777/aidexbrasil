@@ -5,7 +5,12 @@
 import { z } from "zod";
 
 export type LegacyJsonValue =
-  string | number | boolean | null | LegacyJsonValue[] | { [key: string]: LegacyJsonValue };
+  | string
+  | number
+  | boolean
+  | null
+  | LegacyJsonValue[]
+  | { [key: string]: LegacyJsonValue };
 export type LegacyJsonObject = { [key: string]: LegacyJsonValue };
 
 /** Pedidos da Legacy (Pix e cartão) são guardados com este prefixo — é ele que roteia status e webhook. */
@@ -35,7 +40,7 @@ export const legacyRefused = (status: string, pending = false) =>
 export const legacyPayinCardSchema = z
   .object({
     token: z.string().min(5).max(300),
-    installments: z.number().int().min(1).max(12),
+    installments: z.literal(1),
   })
   .passthrough()
   .refine(
@@ -50,6 +55,8 @@ export function assertLegacyPreparedAmount(
   cardInstallments: number,
   installments: number,
 ) {
+  if (cardInstallments !== 1 || installments !== 1)
+    throw new Error("O pagamento no cartão está disponível somente em 1x à vista.");
   if (prepared !== actual || cardInstallments !== installments)
     throw new Error("O valor ou as parcelas mudaram. Confira e tente novamente.");
 }
@@ -123,6 +130,20 @@ export function payerDataError(code: string, field?: string | null): PayerDataEr
     return new PayerDataError(c, "Confira os dados do pagamento e tente novamente.");
   }
   return null;
+}
+
+/** Mensagem segura de recusa: não guarda nem devolve textos brutos que possam conter dado do cartão. */
+export function legacyCardRefusalMessage(reason?: string | null): string {
+  return /cvv|c[oó]digo de seguran[cç]a|security code/i.test(reason ?? "")
+    ? "CVV inválido. Confira o código de segurança do cartão ou pague com Pix."
+    : "Pagamento recusado pelo banco. Confira os dados do cartão ou pague com Pix.";
+}
+
+/** Erros conhecidos do pagador já são seguros; falhas técnicas viram uma mensagem genérica. */
+export function legacyCardErrorMessage(error: unknown): string {
+  return error instanceof PayerDataError
+    ? error.message
+    : "Não foi possível processar o cartão. Confira os dados e tente novamente ou pague com Pix.";
 }
 
 /** Só falha do GATEWAY permite tentar o próximo; dado errado do cliente volta para ele corrigir. */

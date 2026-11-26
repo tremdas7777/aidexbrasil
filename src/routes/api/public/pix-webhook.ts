@@ -70,13 +70,16 @@ export const Route = createFileRoute("/api/public/pix-webhook")({
         const body = (await request.json().catch(() => null)) as any;
         if (gw === "le") {
           const raw = body?.id ?? body?.data?.id;
-          if (typeof raw !== "string" || !/^[\w-]{1,61}$/.test(raw)) return Response.json({ ok: true });
+          if (typeof raw !== "string" || !/^[\w-]{1,61}$/.test(raw))
+            return Response.json({ ok: true });
           const id = `le_${raw}`;
           try {
             const { legacyStatus } = await import("@/lib/legacy.server");
-            const { reportPaidOnce, isPaidStatus } = await import("@/lib/pix-orders.server");
+            const { reportPaidOnce, syncOrderStatus, isPaidStatus } =
+              await import("@/lib/pix-orders.server");
             const { status, amount } = await legacyStatus(raw);
             if (isPaidStatus(status)) await reportPaidOnce(id, amount);
+            else await syncOrderStatus(id, status);
           } catch {
             console.error("legacy-webhook status verification failed");
           }
@@ -112,10 +115,11 @@ export const Route = createFileRoute("/api/public/pix-webhook")({
         console.log("pix-webhook", body?.event, id);
         if (!/^[\w-]{1,64}$/.test(id)) return Response.json({ ok: true });
         try {
-          const { fetchGatewayStatus, reportPaidOnce, isPaidStatus } =
+          const { fetchGatewayStatus, reportPaidOnce, syncOrderStatus, isPaidStatus } =
             await import("@/lib/pix-orders.server");
           const { status, amount } = await fetchGatewayStatus(id);
           if (isPaidStatus(status)) await reportPaidOnce(id, amount);
+          else await syncOrderStatus(id, status);
         } catch (e) {
           console.error("pix-webhook failed", e);
         }

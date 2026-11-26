@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reportPaidOnce } from "@/lib/pix-orders.server";
+import { isFailedPaymentStatus } from "@/lib/pix-status";
 
 export const verifyAdminPassword = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ password: z.string().min(1).max(200) }).parse(d))
@@ -146,6 +147,7 @@ export const getAdminOrders = createServerFn({ method: "POST" })
     }
     const since = periodStart(data.days);
     // Tabela pix_orders ainda não presente nos tipos gerados.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipagem gerada ainda não inclui pix_orders
     const db = supabaseAdmin as unknown as { from: (t: string) => any };
     const { data: rows, error } = await db
       .from("pix_orders")
@@ -169,6 +171,7 @@ export const approveAdminOrder = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<{ ok: true; alreadyPaid: boolean }> => {
     if (data.password !== process.env.ADMIN_PASSWORD) throw new Error("Unauthorized");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipagem gerada ainda não inclui pix_orders
     const db = supabaseAdmin as unknown as { from: (t: string) => any };
     const { data: order, error } = await db
       .from("pix_orders")
@@ -178,6 +181,8 @@ export const approveAdminOrder = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     if (!order) throw new Error("Pedido não encontrado");
     if (order.status === "paid") return { ok: true, alreadyPaid: true };
+    if (isFailedPaymentStatus(order.status))
+      throw new Error("Esta tentativa foi recusada ou teve erro e não pode ser aprovada.");
 
     // Fica registado no próprio pedido para auditoria e é preservado por reportPaidOnce.
     await db
@@ -315,6 +320,7 @@ export const getAbandonedCheckouts = createServerFn({ method: "POST" })
 
       const bySession = groupCheckoutEvents(events ?? []);
       const sessions = [...bySession.values()];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipagem gerada ainda não inclui pix_orders
       const db = supabaseAdmin as unknown as { from: (t: string) => any };
 
       // Pix desses checkouts que foram pagos.

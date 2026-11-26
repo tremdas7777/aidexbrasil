@@ -5,7 +5,7 @@ import { sendCapiEvent } from "@/lib/meta.server";
 import { shouldSendRastro, type RotasyncAddress } from "@/lib/rotasync.server";
 import { sendRastroOrder } from "@/lib/rastrocode.server";
 import { getBundle } from "@/lib/bundles";
-import { isPaidStatus } from "@/lib/pix-status";
+import { isFailedPaymentStatus, isPaidStatus } from "@/lib/pix-status";
 import { getCardTransaction, isCardOrderId, CARD_ORDER_PREFIX } from "@/lib/hypercash.server";
 import { fetchPixStatus } from "@/lib/pix-gateway.server";
 
@@ -57,6 +57,10 @@ export type SaveOrderInput = {
   fbc?: string | null;
   /** Momento da criação (ms). O mesmo valor vai para a UTMify no "pendente" e no "pago". */
   createdAt?: number;
+  /** Estado confirmado pelo gateway; sem ele, o banco usa waiting_payment. */
+  status?: string;
+  /** Resultado seguro da tentativa, sem número de cartão, CVV ou resposta bruta do gateway. */
+  reportResult?: Record<string, unknown>;
 };
 
 /** Persiste o pedido ou falha; obrigatório antes de devolver um desafio 3DS pendente. */
@@ -74,6 +78,8 @@ export async function saveOrderStrict(o: SaveOrderInput): Promise<void> {
     ua: o.ua ?? null,
     fbp: o.fbp ?? null,
     fbc: o.fbc ?? null,
+    ...(o.status ? { status: o.status } : {}),
+    ...(o.reportResult ? { report_result: o.reportResult } : {}),
   });
   if (error) throw new Error(`Não foi possível guardar o pedido: ${error.message}`);
 }
@@ -117,7 +123,13 @@ export async function findUpsellOf(parentId: string, express = false): Promise<S
     .order("created_at", { ascending: false })
     .limit(10);
   const rows = (data ?? []) as StoredOrder[];
-  return rows.find((o) => !!o.customer?.upsellItems?.includes("expresso") === express) ?? null;
+  const failedCard = (o: StoredOrder) =>
+    o.customer.method === "card" && isFailedPaymentStatus(o.status);
+  return (
+    rows.find(
+      (o) => !!o.customer?.upsellItems?.includes("expresso") === express && !failedCard(o),
+    ) ?? null
+  );
 }
 
 /**
@@ -181,6 +193,37 @@ export async function fetchGatewayStatus(id: string): Promise<{ status: string; 
   }
   // Pix: Umbrella (prefixo "um_"), SagacePay (prefixo "sg_"), PayShark (prefixo "ps_") ou PixGate.
   return fetchPixStatus(id);
+}
+
+/** Grava pendente/recusado confirmado pelo gateway sem nunca derrubar um pedido já pago. */
+export async function syncOrderStatus(id: string, status: string): Promise<void> {
+  if (isPaidStatus(status)) throw new Error("Use reportPaidOnce para confirmar pagamento.");
+  const db = await admin();
+  const { data: current } = await db
+    .from("pix_orders")
+    .select("status,report_result,paid_reported_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (
+    !current ||
+    current.status === "paid" ||
+    current.paid_reported_at ||
+    current.status === status
+  )
+    return;
+  await db
+    .from("pix_orders")
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+      report_result: {
+        ...((current.report_result as Record<string, unknown> | null) ?? {}),
+        gatewayStatus: { status, at: new Date().toISOString() },
+      },
+    })
+    .eq("id", id)
+    .neq("status", "paid")
+    .is("paid_reported_at", null);
 }
 
 /**
@@ -322,26 +365,26 @@ export async function reportPaidOnce(
       : !rastroOn
         ? { ok: false, skipped: "rastreio desativado no painel" }
         : c.upsellOf
-        ? { ok: true, skipped: "upsell enviado junto com o pedido original" }
-        : !c.address
-          ? { ok: false, skipped: "pedido sem endereço por partes" }
-          : await sendRastroOrder({
-              transactionId: id,
-              customer: { name: c.name, email: c.email, phone: c.phone, document: c.cpf },
-              address: c.address,
-              products: [
-                {
-                  name: `Glycom G7 CGM - ${getBundle(o.bundle_id).name}`,
-                  quantity: 1,
-                  price: getBundle(o.bundle_id).price,
-                },
-                ...(c.bumps ?? (c.bump ? [c.bump] : [])).map((b) => ({
-                  name: b.name,
-                  quantity: 1,
-                  price: b.price,
-                })),
-              ],
-            });
+          ? { ok: true, skipped: "upsell enviado junto com o pedido original" }
+          : !c.address
+            ? { ok: false, skipped: "pedido sem endereço por partes" }
+            : await sendRastroOrder({
+                transactionId: id,
+                customer: { name: c.name, email: c.email, phone: c.phone, document: c.cpf },
+                address: c.address,
+                products: [
+                  {
+                    name: `Glycom G7 CGM - ${getBundle(o.bundle_id).name}`,
+                    quantity: 1,
+                    price: getBundle(o.bundle_id).price,
+                  },
+                  ...(c.bumps ?? (c.bump ? [c.bump] : [])).map((b) => ({
+                    name: b.name,
+                    quantity: 1,
+                    price: b.price,
+                  })),
+                ],
+              });
     // O rastreio fica fora do allOk: é idempotente por external_id e um 422 não deve ser retentado.
     const allOk = utmify.ok && meta.ok;
     console.log("reportPaidOnce", id, JSON.stringify({ utmify, meta, rastro }));
