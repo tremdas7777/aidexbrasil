@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { getMetaPixelId } from "@/lib/meta.functions";
-import { loadMetaPixel, metaTrack } from "@/lib/meta-pixel";
+import { META_PIXEL_ID, loadMetaPixel, metaTrack } from "@/lib/meta-pixel";
 
 /** Carrega o pixel com o ID salvo no /admin e envia PageView a cada troca de página. */
 export function useMetaPixel() {
@@ -10,9 +10,9 @@ export function useMetaPixel() {
   useEffect(() => {
     getMetaPixelId()
       .then((r) => {
-        if (r.pixelId) loadMetaPixel(r.pixelId);
+        loadMetaPixel(r.pixelId || META_PIXEL_ID);
       })
-      .catch(() => undefined);
+      .catch(() => loadMetaPixel(META_PIXEL_ID));
   }, []);
 
   useEffect(() => {

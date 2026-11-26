@@ -13,6 +13,13 @@ declare global {
 export const META_PIXEL_ID = "2456602311535795";
 
 const inited = new Set<string>();
+/** Só envia eventos depois que o pixel do /admin também foi iniciado (senão ele perde os eventos). */
+let configDone = false;
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    if (!configDone) loadMetaPixel(META_PIXEL_ID);
+  }, 4000);
+}
 const pending: Array<() => void> = [];
 
 function fbqReady() {
@@ -55,6 +62,7 @@ export function loadMetaPixel(pixelId: string) {
     window.fbq!("init", pixelId);
     inited.add(pixelId);
   }
+  configDone = true;
   flush();
 }
 
@@ -185,5 +193,5 @@ export function getMetaCookies() {
 
 /** Estado de inicialização (para hooks aguardarem o pixel). */
 export function isMetaReady() {
-  return fbqReady() && inited.size > 0;
+  return configDone && fbqReady() && inited.size > 0;
 }
