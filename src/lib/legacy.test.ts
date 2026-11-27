@@ -4,6 +4,7 @@ import {
   assertLegacyPreparedAmount,
   isLegacyOrderId,
   legacyCardErrorMessage,
+  legacyErrorInfo,
   legacyCardRefusalMessage,
   legacyKeySchema,
   legacyPayinCardSchema,
@@ -117,5 +118,23 @@ describe("Legacy payments", () => {
       checkoutTotals({ products: 180, frete: 20, method: "pix", pixDiscount: false }).total,
       20000,
     );
+  });
+});
+
+describe("Legacy error format", () => {
+  it("reads the documented { error, message } shape", () => {
+    assert.deepEqual(legacyErrorInfo({ error: "INVALID_CVV", message: "CVV", statusCode: 400 }), {
+      code: "INVALID_CVV",
+      message: "CVV",
+    });
+  });
+  it("joins validation message lists", () => {
+    assert.equal(
+      legacyErrorInfo({ error: "Bad Request", message: ["a", "b"] }).message,
+      "a; b",
+    );
+  });
+  it("turns a documented CVV error into a payer message", () => {
+    assert.ok(payerDataError(legacyErrorInfo({ error: "INVALID_CVV" }).code, "cvv"));
   });
 });

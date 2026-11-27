@@ -167,3 +167,17 @@ export function pickFallbackGateway(
   }
   return null;
 }
+
+/**
+ * Erro da Legacy no formato documentado { error: "CODIGO", message, statusCode }.
+ * "message" pode vir como lista (validação de campos). Também aceita { code } e { error: { code } }.
+ */
+export function legacyErrorInfo(json: unknown): { code: string; message: string } {
+  const j = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+  const err = j["error"];
+  const nested = err && typeof err === "object" ? (err as Record<string, unknown>) : null;
+  const code = String(j["code"] ?? nested?.["code"] ?? (typeof err === "string" ? err : "") ?? "");
+  const raw = j["message"] ?? nested?.["message"] ?? "";
+  const message = Array.isArray(raw) ? raw.map(String).join("; ") : String(raw);
+  return { code, message };
+}

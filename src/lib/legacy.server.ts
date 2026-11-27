@@ -5,6 +5,7 @@
 // Dado de cartão (número, CVV, validade) NUNCA passa por aqui: o cartão é tokenizado no
 // navegador pelo SDK LegacyPay e o servidor só recebe o payinCard preparado.
 import {
+  legacyErrorInfo,
   legacyKeySchema,
   legacyPayinCardSchema,
   normalizeLegacyStatus,
@@ -100,7 +101,7 @@ async function legacyPost(path: string, body: unknown, retry = true): Promise<Le
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- resposta do gateway sem tipo
     const json = (await res.json().catch(() => null)) as any;
     last = { res, json };
-    const code = String(json?.code ?? json?.error?.code ?? "");
+    const { code } = legacyErrorInfo(json);
     const retryable = res.status === 429 || res.status >= 500 || code === "PROVIDER_ERROR";
     if (!retryable) return last;
   }
@@ -110,20 +111,15 @@ async function legacyPost(path: string, body: unknown, retry = true): Promise<Le
 
 /** Erro da Legacy: dado do pagador vira PayerDataError (sem fallback); o resto é erro do gateway. */
 function throwLegacyError(res: Response, json: LegacyReply["json"]): never {
-  const code = String(json?.code ?? json?.error?.code ?? "");
+  const { code, message } = legacyErrorInfo(json);
   const field =
     JSON.stringify(
-      json?.fields ??
-        json?.field ??
-        json?.error?.field ??
-        json?.details?.field ??
-        json?.message ??
-        "",
+      json?.fields ?? json?.field ?? json?.error?.field ?? json?.details?.field ?? message ?? "",
     ) || null;
   const payer = payerDataError(code, field);
   if (payer) throw payer;
-  // Log só com status HTTP e código/mensagem do gateway — nunca dado do cliente ou do cartão.
-  console.error("Legacy error", res.status, code);
+  // Log só com status HTTP e código/mensagem técnica do gateway — nunca dado do cliente ou do cartão.
+  console.error("Legacy error", res.status, code, message.slice(0, 200));
   throw new Error("Não foi possível processar o pagamento. Confira os dados e tente novamente.");
 }
 
@@ -244,7 +240,7 @@ export async function createLegacyCard(o: {
       card: cardPrepared,
       ...(o.antifraudSessionId ? { antifraud: { sessionId: o.antifraudSessionId } } : {}),
       ...(o.parentId ? { parentId: o.parentId } : {}),
-      installments: o.installments,
+      // Parcelas vão só dentro de card (payinCard do SDK): a Legacy recusa "installments" na raiz.
       customer: legacyCustomer(o.customer, o.address),
       items: [{ title: o.description.slice(0, 200), unitPrice: o.amount, quantity: 1 }],
     },
